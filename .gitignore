@@ -1,0 +1,81 @@
+# Local history and editor state
+.history/
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# Build outputs
+bin/
+obj/
+out/
+artifacts/
+publish/
+TestResults/
+BenchmarkDotNet.Artifacts/
+
+# .NET generated files
+*.nupkg
+*.snupkg
+*.coverage
+*.coveragexml
+coverage/
+coverage.*
+*.trx
+*.vsp
+*.vspx
+*.psess
+
+# Rider/ReSharper
+_ReSharper*/
+*.DotSettings.user
+
+# Visual Studio cache
+ipch/
+*.VC.db
+*.VC.VC.opendb
+*.cache
+
+# Logs and diagnostics
+*.log
+logs/
+*.dmp
+*.dump
+*.pid
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Local environment/configuration
+.env
+.env.*
+!.env.example
+appsettings.Development.json
+appsettings.Local.json
+*.local.json
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+~$*
+
+# NuGet and package caches
+packages/
+*.nuget.props
+*.nuget.targets
+
+# MCP/client local state
+.mcp/
+mcp.json
+mcp.local.json

@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WindowsCommander.Core/WindowsCommander.Core.csproj" />
+    <Project Path="src/WindowsCommander.McpServer/WindowsCommander.McpServer.csproj" />
+    <Project Path="src/WindowsCommander.Safety/WindowsCommander.Safety.csproj" />
+    <Project Path="src/WindowsCommander.Vision/WindowsCommander.Vision.csproj" />
+    <Project Path="src/WindowsCommander.Windows/WindowsCommander.Windows.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WindowsCommander.Tests/WindowsCommander.Tests.csproj" />
+  </Folder>
+</Solution>
