@@ -9,6 +9,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="Assets\computer-use-notification.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\WindowsCommander.Core\WindowsCommander.Core.csproj" />
     <ProjectReference Include="..\WindowsCommander.Safety\WindowsCommander.Safety.csproj" />
     <ProjectReference Include="..\WindowsCommander.Vision\WindowsCommander.Vision.csproj" />

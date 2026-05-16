@@ -1,4 +1,6 @@
-﻿using System.Text.Json;
+﻿using System.IO;
+using System.Text;
+using System.Text.Json;
 using WindowsCommander.McpServer.Mcp;
 using WindowsCommander.Safety.Audit;
 using WindowsCommander.Windows.Services;
@@ -13,27 +15,53 @@ var dispatcher = new ToolDispatcher(
     new ClipboardService(),
     new FileSystemService(),
     new ShellService(),
+    new WindowsServiceDiscoveryService(),
+    new RegistryService(),
+    new ApplicationService(),
+    new InputService(),
+    new VisionService(),
+    new UiAutomationService(),
+    new ControlIndicatorService(),
     new InMemoryAuditLog());
 
-while (await Console.In.ReadLineAsync() is { } line)
+// The MCP stdio transport is strictly UTF-8. Bind explicit UTF-8 (no BOM)
+// streams so non-ASCII characters survive regardless of the host code page;
+// the default Console streams decode with the OEM code page and corrupt them.
+var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+using var input = new StreamReader(Console.OpenStandardInput(), utf8);
+await using var output = new StreamWriter(Console.OpenStandardOutput(), utf8)
+{
+    AutoFlush = false,
+    NewLine = "\n"
+};
+
+while (await input.ReadLineAsync() is { } line)
 {
     if (string.IsNullOrWhiteSpace(line))
     {
         continue;
     }
 
+    JsonRpcRequest? request = null;
     JsonRpcResponse response;
 
     try
     {
-        var request = JsonSerializer.Deserialize<JsonRpcRequest>(line, JsonOptions.Default)
+        request = JsonSerializer.Deserialize<JsonRpcRequest>(line, JsonOptions.Default)
             ?? throw new InvalidOperationException("Request body is empty.");
+
+        // JSON-RPC notifications omit "id" (e.g. "notifications/initialized").
+        // They require no action here and the server must never send a reply.
+        if (request.Id is null)
+        {
+            continue;
+        }
 
         response = request.Method switch
         {
             "initialize" => JsonRpcResponse.Success(request.Id, new
             {
-                protocolVersion = "2024-11-05",
+                protocolVersion = NegotiateProtocolVersion(request.Params),
                 capabilities = new
                 {
                     tools = new { }
@@ -49,21 +77,35 @@ while (await Console.In.ReadLineAsync() is { } line)
                 GetRequiredString(request.Params, "name"),
                 GetProperty(request.Params, "arguments"),
                 CancellationToken.None)),
-            "notifications/initialized" => JsonRpcResponse.Success(request.Id, null),
             _ => JsonRpcResponse.Failure(request.Id, -32601, $"Method not found: {request.Method}")
         };
     }
     catch (JsonException exception)
     {
-        response = JsonRpcResponse.Failure(null, -32700, exception.Message);
+        response = JsonRpcResponse.Failure(request?.Id, -32700, exception.Message);
     }
-    catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+    catch (Exception exception)
     {
-        response = JsonRpcResponse.Failure(null, -32602, exception.Message);
+        // A single failing request must not crash the server and drop the
+        // connection. Invalid arguments map to -32602, anything else to -32603.
+        var code = exception is ArgumentException or InvalidOperationException ? -32602 : -32603;
+        response = JsonRpcResponse.Failure(request?.Id, code, exception.Message);
     }
 
-    await Console.Out.WriteLineAsync(JsonSerializer.Serialize(response, JsonOptions.Default));
-    await Console.Out.FlushAsync();
+    await output.WriteLineAsync(JsonSerializer.Serialize(response, JsonOptions.Default));
+    await output.FlushAsync();
+}
+
+static string NegotiateProtocolVersion(JsonElement? requestParams)
+{
+    // Echo the client's requested protocol version so the handshake always
+    // agrees; fall back to the baseline version for clients that omit it.
+    const string baseline = "2024-11-05";
+    var requested = GetProperty(requestParams, "protocolVersion");
+
+    return requested is { ValueKind: JsonValueKind.String }
+        ? requested.Value.GetString() ?? baseline
+        : baseline;
 }
 
 static string GetRequiredString(JsonElement? element, string propertyName)

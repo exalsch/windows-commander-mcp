@@ -12,8 +12,13 @@ public sealed record JsonRpcRequest(
 public sealed record JsonRpcResponse(
     [property: JsonPropertyName("jsonrpc")] string JsonRpc,
     [property: JsonPropertyName("id")] JsonElement? Id,
-    [property: JsonPropertyName("result")] object? Result,
-    [property: JsonPropertyName("error")] JsonRpcError? Error)
+    // A JSON-RPC response carries exactly one of "result" or "error". The unused
+    // member is omitted entirely rather than serialized as null. This relies on a
+    // successful result never being null (see JsonRpcResponse.Success callers).
+    [property: JsonPropertyName("result")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] object? Result,
+    [property: JsonPropertyName("error")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] JsonRpcError? Error)
 {
     public static JsonRpcResponse Success(JsonElement? id, object? result)
     {

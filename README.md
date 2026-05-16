@@ -16,6 +16,17 @@ Implemented slices currently include:
 - Text clipboard access
 - Environment variable access
 - File system and shell integration
+- Process/window management
+- Hardware input simulation
+- Screen capture
+- UI Automation tree/action tools
+- Local OCR-style text extraction from UI/window metadata
+- Visual candidate detection from local metadata
+- Display metrics, screen identification, and window/screen mapping
+- Windows notification balloons
+- Windows service discovery
+- Registry reads
+- Installed application discovery and launching
 - In-memory audit logging
 - Risk classification foundation
 - Unit tests for safety and file system behavior
@@ -92,7 +103,7 @@ Example tool call:
 
 ## MCP Client Configuration
 
-Use the built executable or `dotnet run` command as a stdio MCP server command in your MCP client.
+Use the published executable as a stdio MCP server command in your MCP client.
 
 Example command shape:
 
@@ -100,23 +111,25 @@ Example command shape:
 {
   "mcpServers": {
     "windows-commander": {
-      "command": "dotnet",
-      "args": [
-        "run",
-        "--project",
-        "C:\\PROGRAMMING\\MCP_Servers\\windows-commander-mcp\\src\\WindowsCommander.McpServer\\WindowsCommander.McpServer.csproj"
-      ]
+      "command": "C:\\PROGRAMMING\\MCP_Servers\\windows-commander-mcp\\src\\WindowsCommander.McpServer\\bin\\Release\\net8.0-windows\\win-x64\\publish\\WindowsCommander.McpServer.exe",
+      "args": []
     }
   }
 }
 ```
 
-For production-style use, publish first and point the MCP client at the generated executable.
+Publish first and point the MCP client at the generated executable.
 
 ## Publish
 
 ```powershell
 dotnet publish src/WindowsCommander.McpServer/WindowsCommander.McpServer.csproj -c Release -r win-x64 --self-contained true
+```
+
+The generated executable is:
+
+```text
+src\WindowsCommander.McpServer\bin\Release\net8.0-windows\win-x64\publish\WindowsCommander.McpServer.exe
 ```
 
 ## Safety Model
@@ -141,7 +154,7 @@ See `docs/safety.md`.
 
 ## Important Limitations
 
-‼️ Several spec items are not implemented yet, including hardware input simulation, UI Automation, screen capture, OCR, visual element detection, services/registry/app discovery, WPF overlays, and confirmation dialogs.
+‼️ Some deep fidelity items remain partial: native OCR engine integration, recycle-bin operations, non-text clipboard formats, scheduled task management, alternate data streams, and security descriptor summaries.
 
 ‼️ `clipboard_access` currently supports text format only.
 

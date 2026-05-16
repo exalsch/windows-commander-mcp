@@ -7,13 +7,25 @@ public interface IProcessService
     IReadOnlyList<ProcessSummary> ListProcesses(string? filterName, bool sortByMemory);
 
     ProcessDetails GetProcessDetails(int pid);
+
+    ProcessActionResult ManageProcess(int pid, string action);
 }
 
 public interface IWindowService
 {
     IReadOnlyList<WindowSummary> ListWindows();
 
-    IReadOnlyList<WindowDetails> FindWindows(string? titleContains, string? className, string? processName, int? pid, bool visibleOnly);
+    IReadOnlyList<WindowDetails> FindWindows(string? titleContains, string? className, string? processName, int? pid, bool visibleOnly, bool processNameExact = false);
+
+    WindowActionResult FocusWindow(long windowHandle);
+
+    WindowActionResult MoveResizeWindow(long windowHandle, int? x, int? y, int? width, int? height);
+
+    WindowActionResult SetWindowState(long windowHandle, string state);
+
+    Task<WindowDetails> WaitForWindowAsync(string? titleContains, string? className, string? processName, int? pid, int timeoutMs, CancellationToken cancellationToken, bool processNameExact = false);
+
+    IReadOnlyList<WindowDetails> EnumerateChildWindows(long windowHandle);
 }
 
 public interface IScreenService
@@ -21,6 +33,12 @@ public interface IScreenService
     IReadOnlyList<ScreenDetails> GetScreenDetails();
 
     ScreenAtPoint GetScreenAtPoint(int x, int y);
+
+    IReadOnlyList<DisplayMetric> GetDisplayMetrics();
+
+    WindowScreenInfo GetWindowScreenInfo(long windowHandle);
+
+    NotificationResult ShowNotification(string title, string message, int? timeoutMs);
 }
 
 public interface ISystemInfoService
@@ -89,4 +107,86 @@ public interface IShellService
     void OpenPath(string pathOrUri, string? verb, IReadOnlyList<string>? arguments);
 
     void ShowInExplorer(string path);
+}
+
+public interface IWindowsServiceDiscoveryService
+{
+    IReadOnlyList<WindowsServiceInfo> ListServices(string? nameFilter, string? statusFilter);
+}
+
+public interface IRegistryService
+{
+    IReadOnlyList<RegistryValueInfo> ReadRegistry(string hive, string keyPath, string? valueName);
+}
+
+public interface IApplicationService
+{
+    IReadOnlyList<InstalledAppInfo> ListInstalledApps(string? nameFilter, bool includeStoreApps, bool includeSystemComponents);
+
+    AppLaunchResult LaunchApp(string identifier, string identifierType, IReadOnlyList<string>? arguments);
+}
+
+public interface IInputService
+{
+    InputActionResult MouseAction(string action, string? button, int? x, int? y, long? targetWindowHandle);
+
+    Task<InputActionResult> TypeTextAsync(string text, int? speedMs, CancellationToken cancellationToken);
+
+    InputActionResult SendHotkey(IReadOnlyList<string> modifiers, string key);
+
+    Task<InputActionResult> KeyboardActionAsync(string action, string key, int? repeat, int? delayMs, CancellationToken cancellationToken);
+
+    InputActionResult MouseWheel(string direction, int amount, long? targetWindowHandle, int? x, int? y);
+
+    CursorPositionInfo GetCursorPosition();
+
+    Task<InputActionResult> SetCursorPositionAsync(int x, int y, int? durationMs, CancellationToken cancellationToken);
+
+    Task<InputActionResult> InputSequenceAsync(IReadOnlyList<InputSequenceStep> steps, bool abortOnError, CancellationToken cancellationToken);
+}
+
+public sealed record InputSequenceStep(string Type, string? Action, string? Text, string? Key, IReadOnlyList<string>? Modifiers, int? X, int? Y, int? DelayMs);
+
+public interface IVisionService
+{
+    ScreenCaptureResult CaptureScreen(string target, long? windowHandle, int? maxDimension);
+
+    ScreenCaptureResult CaptureScreenRegion(int x, int y, int width, int height, string? monitorId, int? maxDimension);
+
+    OcrResult OcrScreen(string target, long? windowHandle, RectBounds? region);
+
+    VisualDetectionResult DetectVisualElements(string target, long? windowHandle, RectBounds? region, IReadOnlyList<string>? elementTypes);
+}
+
+public interface IUiAutomationService
+{
+    UiTreeResult ReadUiTree(long windowHandle, int maxDepth = 5);
+
+    IReadOnlyList<UiElementInfo> FindUiElement(long windowHandle, string? nameContains, string? automationId, string? controlType, string? className, bool enabledOnly, int maxDepth = 5);
+
+    UiActionResult InvokeUiElement(string elementRef, string action);
+
+    UiActionResult SetUiValue(string elementRef, string value);
+
+    UiElementDetails GetUiElementDetails(string elementRef);
+}
+
+public interface IControlIndicatorService
+{
+    ControlIndicatorStatus ShowControlIndicator(string message, RectBounds? bounds);
+
+    ControlIndicatorStatus HideControlIndicator();
+
+    ControlIndicatorStatus ConfigureControlIndicators(ControlIndicatorConfig config);
+
+    ControlIndicatorStatus GetControlIndicatorStatus();
+
+    /// <summary>
+    /// Flashes the screen-edge activity glow and refreshes its auto-hide timer.
+    /// Called automatically whenever a computer-use tool runs so the user has a
+    /// visible cue that automation is driving their desktop.
+    /// </summary>
+    void SignalActivity(string message);
+
+    ConfirmationResult RequestUserConfirmation(string title, string message, string riskLevel, int? timeoutMs);
 }

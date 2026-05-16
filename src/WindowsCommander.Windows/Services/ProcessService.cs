@@ -35,6 +35,32 @@ public sealed class ProcessService : IProcessService
             windows);
     }
 
+    public ProcessActionResult ManageProcess(int pid, string action)
+    {
+        using var process = Process.GetProcessById(pid);
+        switch (action.ToLowerInvariant())
+        {
+            case "terminate":
+            case "kill":
+                process.Kill(entireProcessTree: false);
+                break;
+            case "kill_tree":
+                process.Kill(entireProcessTree: true);
+                break;
+            case "close_main_window":
+                if (!process.CloseMainWindow())
+                {
+                    throw new InvalidOperationException($"Process does not have a closable main window: {pid}");
+                }
+
+                break;
+            default:
+                throw new ArgumentException($"Unsupported process action: {action}");
+        }
+
+        return new ProcessActionResult(pid, action, Completed: true);
+    }
+
     private static bool MatchesFilter(Process process, string? filterName)
     {
         return string.IsNullOrWhiteSpace(filterName)

@@ -11,7 +11,8 @@ public sealed class RiskPolicyService : IRiskPolicyService
         "copy_move_delete_path",
         "set_environment_variable",
         "execute_powershell",
-        "execute_process"
+        "execute_process",
+        "request_user_confirmation"
     };
 
     private static readonly HashSet<string> MediumRiskTools = new(StringComparer.OrdinalIgnoreCase)
@@ -29,7 +30,14 @@ public sealed class RiskPolicyService : IRiskPolicyService
         "set_ui_value",
         "focus_window",
         "move_resize_window",
-        "set_window_state"
+        "set_window_state",
+        "capture_screen",
+        "capture_screen_region",
+        "ocr_screen",
+        "detect_visual_elements",
+        "show_control_indicator",
+        "hide_control_indicator",
+        "configure_control_indicators"
     };
 
     public RiskLevel Classify(string toolName, IReadOnlyDictionary<string, object?> arguments)
