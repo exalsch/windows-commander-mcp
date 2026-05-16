@@ -24,6 +24,10 @@ public sealed class ToolDispatcher
     private readonly IUiAutomationService uiAutomationService;
     private readonly IControlIndicatorService controlIndicatorService;
     private readonly IAuditLog auditLog;
+    private readonly IRiskPolicyService riskPolicy;
+    // When true, high-risk tools are gated behind a local confirmation dialog.
+    // Disabled (unattended mode) for automated harness/CI runs.
+    private readonly bool requireConfirmation;
     private readonly ComputerUseNotifier notifier = new();
 
     // Tools that actively drive the desktop (mouse, keyboard, windows, UI,
@@ -56,7 +60,9 @@ public sealed class ToolDispatcher
         IVisionService visionService,
         IUiAutomationService uiAutomationService,
         IControlIndicatorService controlIndicatorService,
-        IAuditLog auditLog)
+        IAuditLog auditLog,
+        IRiskPolicyService riskPolicy,
+        bool requireConfirmation)
     {
         this.processService = processService;
         this.windowService = windowService;
@@ -75,6 +81,8 @@ public sealed class ToolDispatcher
         this.uiAutomationService = uiAutomationService;
         this.controlIndicatorService = controlIndicatorService;
         this.auditLog = auditLog;
+        this.riskPolicy = riskPolicy;
+        this.requireConfirmation = requireConfirmation;
     }
 
     public object ListTools()
@@ -310,17 +318,39 @@ public sealed class ToolDispatcher
         var startedAt = DateTimeOffset.UtcNow;
         var operationId = Guid.NewGuid().ToString("N");
         var args = ToDictionary(arguments);
+        var risk = riskPolicy.Classify(name, args);
+
+        // High-risk tools (process kills, file writes/deletes, env and script
+        // execution) are gated behind a local confirmation dialog. The
+        // request_user_confirmation tool is the dialog itself, so gating it
+        // would be circular; it is always exempt.
+        if (requireConfirmation
+            && name != "request_user_confirmation"
+            && riskPolicy.RequiresConfirmation(name, args))
+        {
+            var confirmation = controlIndicatorService.RequestUserConfirmation(
+                "windows-commander — confirm high-risk action",
+                $"Allow the '{name}' tool to run on this machine?",
+                risk.ToString(),
+                null);
+
+            if (confirmation.Decision != "approved")
+            {
+                auditLog.Record(new AuditEntry(operationId, name, startedAt, DateTimeOffset.UtcNow, $"blocked:{confirmation.Decision}", args, "High-risk action was not approved by the local user.", risk));
+                return ToErrorResult($"Blocked: '{name}' is a high-risk action and the local user did not approve it ({confirmation.Decision}).");
+            }
+        }
 
         if (ComputerUseTools.Contains(name))
         {
             notifier.Notify();
-            controlIndicatorService.SignalActivity(name);
+            controlIndicatorService.SignalActivity(DescribeActivity(name), risk == RiskLevel.High);
         }
 
         try
         {
             var result = await DispatchAsync(name, arguments, cancellationToken);
-            auditLog.Record(new AuditEntry(operationId, name, startedAt, DateTimeOffset.UtcNow, "success", args, null));
+            auditLog.Record(new AuditEntry(operationId, name, startedAt, DateTimeOffset.UtcNow, "success", args, null, risk));
 
             return ToToolResult(result);
         }
@@ -330,21 +360,51 @@ public sealed class ToolDispatcher
             // result as isError=true rather than as a JSON-RPC protocol error.
             // This keeps the connection healthy and lets the caller see and
             // recover from the error (e.g. a missing or invalid argument).
-            auditLog.Record(new AuditEntry(operationId, name, startedAt, DateTimeOffset.UtcNow, "error", args, exception.Message));
+            auditLog.Record(new AuditEntry(operationId, name, startedAt, DateTimeOffset.UtcNow, "error", args, exception.Message, risk));
 
-            return new
-            {
-                content = new[]
-                {
-                    new
-                    {
-                        type = "text",
-                        text = $"Tool '{name}' failed: {exception.Message}"
-                    }
-                },
-                isError = true
-            };
+            return ToErrorResult($"Tool '{name}' failed: {exception.Message}");
         }
+    }
+
+    // Builds the MCP isError result shape shared by tool failures and by
+    // confirmation-gated blocks.
+    private static object ToErrorResult(string message)
+    {
+        return new
+        {
+            content = new[]
+            {
+                new { type = "text", text = message }
+            },
+            isError = true
+        };
+    }
+
+    // Maps a tool name to a short human-readable phrase for the activity glow
+    // label, so the on-screen cue reads "typing" rather than "type_text".
+    private static string DescribeActivity(string toolName)
+    {
+        return toolName switch
+        {
+            "type_text" => "typing text",
+            "send_hotkey" => "pressing a hotkey",
+            "keyboard_action" => "pressing keys",
+            "mouse_action" => "moving / clicking the mouse",
+            "mouse_wheel" => "scrolling",
+            "set_cursor_position" => "moving the cursor",
+            "input_sequence" => "running an input sequence",
+            "focus_window" => "focusing a window",
+            "move_resize_window" => "moving / resizing a window",
+            "set_window_state" => "changing a window state",
+            "capture_screen" or "capture_screen_region" => "capturing the screen",
+            "invoke_ui_element" => "invoking a UI element",
+            "set_ui_value" => "setting a UI value",
+            "launch_app" => "launching an app",
+            "open_path" => "opening a path",
+            "show_in_explorer" => "opening File Explorer",
+            "manage_process" => "managing a process",
+            _ => toolName.Replace('_', ' ')
+        };
     }
 
     private static object ToToolResult(object result)

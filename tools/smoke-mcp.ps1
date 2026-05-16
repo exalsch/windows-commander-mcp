@@ -31,6 +31,8 @@ function Start-Server {
     param([string]$Exe)
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $Exe
+    # Harness cannot answer the high-risk confirmation dialog: run unattended.
+    $psi.EnvironmentVariables["WINDOWS_COMMANDER_UNATTENDED"] = "1"
     $psi.RedirectStandardInput = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $false
@@ -229,6 +231,12 @@ try {
         Test-Tool $proc 'read_ui_tree' @{ hwnd = $hwnd; max_depth = 5 } -Label 'max_depth=5' `
             { param($p) $p.maxDepth -eq 5 -and $p.elementCount -gt $d1Count } | Out-Null
     }
+    # capture_screen single-monitor targets: region must be one monitor's
+    # bounds, not the full multi-monitor virtual screen.
+    Test-Tool $proc 'capture_screen' @{ target = 'primary_screen' } -Label 'primary_screen' `
+        { param($p) $p.region.width -gt 0 -and $p.region.height -gt 0 } | Out-Null
+    Test-Tool $proc 'capture_screen' @{ target = 'screen-1' } -Label 'screen-1' `
+        { param($p) $p.region.width -gt 0 -and $p.region.height -gt 0 } | Out-Null
 
     # --- summary ----------------------------------------------------------
     $pass = ($script:results | Where-Object Status -eq 'PASS').Count

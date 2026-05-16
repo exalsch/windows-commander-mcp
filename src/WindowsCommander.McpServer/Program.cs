@@ -3,7 +3,13 @@ using System.Text;
 using System.Text.Json;
 using WindowsCommander.McpServer.Mcp;
 using WindowsCommander.Safety.Audit;
+using WindowsCommander.Safety.Policy;
 using WindowsCommander.Windows.Services;
+
+// High-risk tools are gated behind a local confirmation dialog by default.
+// Setting WINDOWS_COMMANDER_UNATTENDED=1 disables the gate for automated
+// harness/CI runs that cannot answer a dialog.
+var requireConfirmation = !IsUnattended();
 
 var dispatcher = new ToolDispatcher(
     new ProcessService(),
@@ -22,7 +28,9 @@ var dispatcher = new ToolDispatcher(
     new VisionService(),
     new UiAutomationService(),
     new ControlIndicatorService(),
-    new InMemoryAuditLog());
+    new InMemoryAuditLog(),
+    new RiskPolicyService(),
+    requireConfirmation);
 
 // The MCP stdio transport is strictly UTF-8. Bind explicit UTF-8 (no BOM)
 // streams so non-ASCII characters survive regardless of the host code page;
@@ -94,6 +102,12 @@ while (await input.ReadLineAsync() is { } line)
 
     await output.WriteLineAsync(JsonSerializer.Serialize(response, JsonOptions.Default));
     await output.FlushAsync();
+}
+
+static bool IsUnattended()
+{
+    var value = Environment.GetEnvironmentVariable("WINDOWS_COMMANDER_UNATTENDED");
+    return value is "1" or "true" or "TRUE" or "True" or "yes";
 }
 
 static string NegotiateProtocolVersion(JsonElement? requestParams)

@@ -28,6 +28,8 @@ function Start-Server {
     param([string]$Exe)
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $Exe
+    # Harness cannot answer the high-risk confirmation dialog: run unattended.
+    $psi.EnvironmentVariables["WINDOWS_COMMANDER_UNATTENDED"] = "1"
     $psi.RedirectStandardInput = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $false

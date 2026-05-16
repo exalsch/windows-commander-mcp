@@ -91,10 +91,42 @@ public sealed class VisionService : IVisionService
             return new RectBounds(bounds.X, bounds.Y, bounds.Width, bounds.Height);
         }
 
+        // Per-monitor capture options exist because "full_screen" grabs the
+        // whole virtual screen — on multi-monitor setups that can be ~8000px
+        // wide, and downscaling it to fit the payload cap renders all text
+        // unreadable. Capturing a single monitor keeps the result legible.
+        if (target.Equals("primary_screen", StringComparison.OrdinalIgnoreCase))
+        {
+            var primary = Screen.PrimaryScreen ?? throw new ArgumentException("No primary screen is available.");
+            var bounds = primary.Bounds;
+            return new RectBounds(bounds.X, bounds.Y, bounds.Width, bounds.Height);
+        }
+
+        if (target.StartsWith("screen-", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(target["screen-".Length..], out var screenNumber))
+        {
+            var screens = Screen.AllScreens;
+            if (screenNumber < 1 || screenNumber > screens.Length)
+            {
+                throw new ArgumentException($"Screen index out of range: '{target}'. Valid range is screen-1 to screen-{screens.Length}.");
+            }
+
+            var bounds = screens[screenNumber - 1].Bounds;
+            return new RectBounds(bounds.X, bounds.Y, bounds.Width, bounds.Height);
+        }
+
         if (target.Equals("active_window", StringComparison.OrdinalIgnoreCase))
         {
-            var window = WindowService.EnumerateWindows(visibleOnly: true).FirstOrDefault(window => !string.IsNullOrWhiteSpace(window.Title));
-            return window?.BoundingRect ?? ResolveCaptureRegion("full_screen", null);
+            // The real foreground window — not just the first title-bearing
+            // window in z-order. Falls back to full_screen if it cannot be
+            // determined.
+            var foreground = NativeMethods.GetForegroundWindow();
+            if (foreground != IntPtr.Zero && NativeMethods.GetWindowRect(foreground, out var rect))
+            {
+                return new RectBounds(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top);
+            }
+
+            return ResolveCaptureRegion("full_screen", null);
         }
 
         if (windowHandle is null && long.TryParse(target, out var parsedHandle))

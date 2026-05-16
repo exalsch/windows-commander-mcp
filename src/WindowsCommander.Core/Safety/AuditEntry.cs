@@ -7,4 +7,5 @@ public sealed record AuditEntry(
     DateTimeOffset EndTime,
     string Status,
     IReadOnlyDictionary<string, object?> RedactedArguments,
-    string? ErrorSummary);
+    string? ErrorSummary,
+    RiskLevel Risk = RiskLevel.Low);

@@ -182,11 +182,14 @@ public interface IControlIndicatorService
     ControlIndicatorStatus GetControlIndicatorStatus();
 
     /// <summary>
-    /// Flashes the screen-edge activity glow and refreshes its auto-hide timer.
-    /// Called automatically whenever a computer-use tool runs so the user has a
-    /// visible cue that automation is driving their desktop.
+    /// Drives the screen-edge activity glow. Called automatically whenever a
+    /// computer-use tool runs so the user has a visible cue that automation is
+    /// driving their desktop. The glow shows a bright pulse for the action,
+    /// then settles to a faint persistent border (the session is still live)
+    /// and only fully hides after a longer idle. <paramref name="elevated"/>
+    /// switches the glow to a warning colour for high-risk actions.
     /// </summary>
-    void SignalActivity(string message);
+    void SignalActivity(string message, bool elevated);
 
     ConfirmationResult RequestUserConfirmation(string title, string message, string riskLevel, int? timeoutMs);
 }

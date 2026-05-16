@@ -11,10 +11,24 @@ using Forms = System.Windows.Forms;
 
 namespace WindowsCommander.Windows.Services;
 
+// The glow has two phases: a bright Active pulse while a computer-use tool
+// runs, and a faint Idle border that lingers afterwards so the user can still
+// see a session is connected.
+internal enum ActivityPhase
+{
+    Active,
+    Idle
+}
+
 public sealed class ControlIndicatorService : IControlIndicatorService
 {
-    // How long the activity glow lingers after the last computer-use tool ran.
+    // How long the bright activity glow lingers after the last computer-use
+    // tool ran before settling to the faint idle border.
     private static readonly TimeSpan ActivityHold = TimeSpan.FromMilliseconds(2000);
+
+    // How long the faint idle border lingers with no activity before the glow
+    // is hidden entirely.
+    private static readonly TimeSpan SessionIdleHold = TimeSpan.FromSeconds(30);
 
     private readonly object syncRoot = new();
 
@@ -26,7 +40,8 @@ public sealed class ControlIndicatorService : IControlIndicatorService
     private ControlIndicatorStatus status;
     private Thread? overlayThread;
     private Dispatcher? overlayDispatcher;
-    private System.Threading.Timer? activityHideTimer;
+    private System.Threading.Timer? activeToIdleTimer;
+    private System.Threading.Timer? idleToHiddenTimer;
 
     public ControlIndicatorService()
     {
@@ -43,7 +58,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
         status = new ControlIndicatorStatus(IsVisible: config.VisualEnabled, message, bounds, config);
         if (config.VisualEnabled)
         {
-            ShowOverlay(message, RectanglesFor(bounds));
+            ShowOverlay(message, RectanglesFor(bounds), config, ActivityPhase.Active);
         }
         else
         {
@@ -66,7 +81,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
         status = status with { Config = config };
         if (status.IsVisible && config.VisualEnabled)
         {
-            ShowOverlay(status.Message ?? string.Empty, RectanglesFor(status.Bounds));
+            ShowOverlay(status.Message ?? string.Empty, RectanglesFor(status.Bounds), config, ActivityPhase.Active);
         }
         else if (!config.VisualEnabled)
         {
@@ -82,7 +97,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
         return status;
     }
 
-    public void SignalActivity(string message)
+    public void SignalActivity(string message, bool elevated)
     {
         // The activity glow must never disrupt the tool call that triggered it.
         try
@@ -92,20 +107,33 @@ public sealed class ControlIndicatorService : IControlIndicatorService
                 return;
             }
 
-            ShowOverlay($"⚡ {message}", RectanglesFor(null));
+            // High-risk actions glow in a warning colour: the cue then says
+            // "automation is doing something risky", not merely "active".
+            var overlayConfig = elevated ? config with { BorderColor = "Orange" } : config;
+            var label = $"{(elevated ? "⚠" : "⚡")} {message}";
+            ShowOverlay(label, RectanglesFor(null), overlayConfig, ActivityPhase.Active);
 
             lock (syncRoot)
             {
-                activityHideTimer ??= new System.Threading.Timer(_ =>
+                // Active glow -> faint idle border after ActivityHold; faint
+                // idle border -> hidden after a further SessionIdleHold. Both
+                // are deferred while a manual indicator is shown.
+                activeToIdleTimer ??= new System.Threading.Timer(_ =>
                 {
-                    // A manually shown indicator must outlive the transient
-                    // activity glow, so only auto-hide when none is set.
+                    if (!status.IsVisible)
+                    {
+                        SetOverlayPhase(ActivityPhase.Idle);
+                    }
+                });
+                idleToHiddenTimer ??= new System.Threading.Timer(_ =>
+                {
                     if (!status.IsVisible)
                     {
                         HideOverlay();
                     }
                 });
-                activityHideTimer.Change(ActivityHold, Timeout.InfiniteTimeSpan);
+                activeToIdleTimer.Change(ActivityHold, Timeout.InfiniteTimeSpan);
+                idleToHiddenTimer.Change(SessionIdleHold, Timeout.InfiniteTimeSpan);
             }
         }
         catch
@@ -145,7 +173,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             .ToArray();
     }
 
-    private void ShowOverlay(string message, IReadOnlyList<RectBounds> rectangles)
+    private void ShowOverlay(string message, IReadOnlyList<RectBounds> rectangles, ControlIndicatorConfig overlayConfig, ActivityPhase phase)
     {
         EnsureOverlayThread();
         overlayDispatcher?.Invoke(() =>
@@ -157,13 +185,29 @@ public sealed class ControlIndicatorService : IControlIndicatorService
 
             for (var index = 0; index < rectangles.Count; index++)
             {
-                overlayWindows[index].ShowOverlay(message, rectangles[index], config);
+                overlayWindows[index].ShowOverlay(message, rectangles[index], overlayConfig, phase);
             }
 
             // Hide any windows left over from a previous, larger set.
             for (var index = rectangles.Count; index < overlayWindows.Count; index++)
             {
                 overlayWindows[index].Hide();
+            }
+        });
+    }
+
+    // Dims the already-visible glow to its faint idle state without otherwise
+    // disturbing it (the session is still connected, just not mid-action).
+    private void SetOverlayPhase(ActivityPhase phase)
+    {
+        overlayDispatcher?.Invoke(() =>
+        {
+            foreach (var window in overlayWindows)
+            {
+                if (window.IsVisible)
+                {
+                    window.SetPhase(phase);
+                }
             }
         });
     }
@@ -266,7 +310,11 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             });
         }
 
-        public void ShowOverlay(string message, RectBounds bounds, ControlIndicatorConfig config)
+        // Window opacity for the faint persistent idle border. Low enough to
+        // read as "session connected" without competing with the active glow.
+        private const double IdleOpacity = 0.3;
+
+        public void ShowOverlay(string message, RectBounds bounds, ControlIndicatorConfig config, ActivityPhase phase)
         {
             Left = bounds.X;
             Top = bounds.Y;
@@ -278,11 +326,29 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             border.BorderThickness = new Thickness(Math.Max(1, config.BorderThickness));
             glow.Color = (brush as SolidColorBrush)?.Color ?? System.Windows.Media.Colors.Red;
             label.Text = message;
+            ApplyPhase(phase);
 
             if (!IsVisible)
             {
                 Show();
             }
+        }
+
+        // Switches an already-visible overlay between the bright active glow
+        // and the faint idle border without re-showing it.
+        public void SetPhase(ActivityPhase phase)
+        {
+            ApplyPhase(phase);
+        }
+
+        private void ApplyPhase(ActivityPhase phase)
+        {
+            Opacity = phase == ActivityPhase.Active ? 1.0 : IdleOpacity;
+            // The label is noise once the action is over; the idle border alone
+            // carries the "session still connected" cue.
+            label.Visibility = phase == ActivityPhase.Active
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         }
 
         private static System.Windows.Media.Brush ParseBrush(string color)

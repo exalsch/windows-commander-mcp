@@ -70,7 +70,7 @@ pwsh tools/mutate-mcp.ps1   # the side-effecting tools, self-cleaning
 pwsh tools/drive-mcp.ps1    # deep: the end-to-end typing scenario
 ```
 
-- **`smoke-mcp.ps1`** — runs every *read-only* tool once (31 checks) and prints
+- **`smoke-mcp.ps1`** — runs every *read-only* tool once (33 checks) and prints
   a PASS/FAIL matrix plus a one-line summary. Best first check after any
   change. Does **not** exercise destructive tools. Exit code 0 only if all pass.
 - **`mutate-mcp.ps1`** — exercises the *mutating* tools (window state, input
@@ -127,11 +127,29 @@ match, so `process_name: "Notepad"` also matches `notepad++`.
 - `focus_window` robust foreground activation (verified).
 - `type_text` via clipboard paste, all-formats clipboard preservation (verified).
 - Computer-use sound + per-monitor glowing border indicator.
-- `smoke-mcp.ps1`: 31 read-only checks verified against a live desktop
-  (system, processes, windows, UI Automation, vision, files, registry,
-  services, apps, clipboard, indicators).
+- **Risk gating**: `RiskPolicyService` is wired into `ToolDispatcher`. High-risk
+  tools (process kills, file writes/deletes, env changes, script execution)
+  require a local confirmation dialog before they run; the audit log records
+  the risk level and any blocked attempt. See *Safety / unattended mode* below.
+- **Indicator phases**: the activity glow shows a bright pulse with a friendly
+  label ("⚡ typing text") during an action, settles to a faint persistent
+  border for 30 s (session still connected), then hides. High-risk actions
+  glow orange with a "⚠" label.
+- `smoke-mcp.ps1`: 33 read-only checks verified against a live desktop.
 - `mutate-mcp.ps1`: 25 mutating checks verified (window state, input
   injection, UI Automation actions, file writes, env vars, process control).
+
+## Safety / unattended mode
+
+High-risk tools are gated behind a local Win32 confirmation dialog. The
+dialog blocks the tool call until the local user answers (or it times out,
+which counts as denied).
+
+Automated runs cannot answer a dialog, so the server reads
+`WINDOWS_COMMANDER_UNATTENDED` — set it to `1`/`true` to disable gating. All
+three `tools/*.ps1` harnesses set it on the server process they spawn. A real
+Claude Code session runs **gated** unless you add the variable to `.mcp.json`'s
+`env` block.
 
 ## Next to test / verify
 
@@ -141,11 +159,13 @@ live desktop. Still worth deeper verification:
 - **Visual correctness** — the harnesses assert results are non-error and
   shape-correct, but most do not pixel-verify. Open `artifacts/*.png` for
   `type_text`; spot-check `move_resize_window`, `set_window_state`, OCR.
+- **Risk-gating dialog** — the *attended* path (a real high-risk call popping
+  the confirmation dialog) cannot be harness-tested; verify it manually. The
+  classification table is unit-tested and the unattended bypass is covered.
 - **`launch_app`** non-path identifiers: `shell_uri`, `aumid`, `shortcut_name`
   (only `path` is exercised).
 - **`open_path`** and `show_in_explorer` (intrusive — open windows; not in the
   harnesses).
-- Multi-monitor glow: confirm each screen is framed correctly.
 
 ## Known schema / agent-ergonomics notes
 
@@ -162,6 +182,10 @@ covered by `smoke-mcp.ps1`'s "agent-efficiency features" section:
 - `find_window` / `wait_for_window`: `class_name` is matched exactly;
   `process_name` is a **substring** match by default (`"Notepad"` also matches
   `notepad++`) — pass `process_name_exact: true` for a whole-string match.
+- `capture_screen` `target`: a multi-monitor `full_screen` capture downscales
+  to an unreadable blur. Use `primary_screen` or `screen-N` (1-based, matches
+  the `monitorId` scheme) to capture one monitor; `active_window` resolves the
+  real foreground window.
 
 ## Conventions
 
