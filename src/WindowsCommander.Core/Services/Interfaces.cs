@@ -160,7 +160,7 @@ public interface IVisionService
 
 public interface IUiAutomationService
 {
-    UiTreeResult ReadUiTree(long windowHandle, int maxDepth = 5);
+    UiTreeResult ReadUiTree(long windowHandle, int maxDepth = 5, IReadOnlyList<string>? controlTypes = null, bool interactableOnly = false);
 
     IReadOnlyList<UiElementInfo> FindUiElement(long windowHandle, string? nameContains, string? automationId, string? controlType, string? className, bool enabledOnly, int maxDepth = 5);
 

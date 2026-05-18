@@ -228,8 +228,16 @@ try {
             { param($p) $p.maxDepth -eq 1 -and $p.truncated -eq $true }
         $d1Count = 0
         try { $d1Count = (($d1.result.content | Where-Object type -eq 'text' | Select-Object -First 1).text | ConvertFrom-Json).elementCount } catch { }
-        Test-Tool $proc 'read_ui_tree' @{ hwnd = $hwnd; max_depth = 5 } -Label 'max_depth=5' `
-            { param($p) $p.maxDepth -eq 5 -and $p.elementCount -gt $d1Count } | Out-Null
+        $full = Test-Tool $proc 'read_ui_tree' @{ hwnd = $hwnd; max_depth = 5 } -Label 'max_depth=5' `
+            { param($p) $p.maxDepth -eq 5 -and $p.elementCount -gt $d1Count }
+        $fullCount = 0
+        try { $fullCount = (($full.result.content | Where-Object type -eq 'text' | Select-Object -First 1).text | ConvertFrom-Json).elementCount } catch { }
+        # control_types filter: every returned element is the requested type.
+        Test-Tool $proc 'read_ui_tree' @{ hwnd = $hwnd; max_depth = 5; control_types = @('Button') } -Label 'control_types' `
+            { param($p) $p.elementCount -ge 1 -and (@($p.elements) | Where-Object { $_.controlType -ne 'Button' }).Count -eq 0 } | Out-Null
+        # interactable_only must drop structural noise -> fewer than the full tree.
+        Test-Tool $proc 'read_ui_tree' @{ hwnd = $hwnd; max_depth = 5; interactable_only = $true } -Label 'interactable_only' `
+            { param($p) $p.elementCount -ge 1 -and $p.elementCount -lt $fullCount } | Out-Null
     }
     # capture_screen single-monitor targets: region must be one monitor's
     # bounds, not the full multi-monitor virtual screen.

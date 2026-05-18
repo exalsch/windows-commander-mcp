@@ -72,7 +72,7 @@ pwsh tools/mutate-mcp.ps1   # the side-effecting tools, self-cleaning
 pwsh tools/drive-mcp.ps1    # deep: the end-to-end typing scenario
 ```
 
-- **`smoke-mcp.ps1`** — runs every *read-only* tool once (33 checks) and prints
+- **`smoke-mcp.ps1`** — runs every *read-only* tool once (35 checks) and prints
   a PASS/FAIL matrix plus a one-line summary. Best first check after any
   change. Does **not** exercise destructive tools. Exit code 0 only if all pass.
 - **`mutate-mcp.ps1`** — exercises the *mutating* tools (window state, input
@@ -117,7 +117,8 @@ match, so `process_name: "Notepad"` also matches `notepad++`.
   (`ControlIndicatorService.SignalActivity`) for every computer-use tool. The
   glow draws **one window per monitor** so each screen is framed at its own
   resolution; it never activates (`ShowActivated = false`) so it cannot steal
-  focus. Auto-hides 2 s after the last computer-use call.
+  focus. It settles to a faint idle border 2 s after the last call and hides
+  after a further 30 s idle (see *Activity-chip queue* in Status).
 - **WPF/WinForms threading**: clipboard and UI overlays need STA threads;
   see `RunOnStaThread` and the overlay dispatcher thread.
 
@@ -141,7 +142,7 @@ match, so `process_name: "Notepad"` also matches `notepad++`.
   highlighted, capped at 5. Because each action is its own chip, a screenshot
   caught mid-render shows fewer chips rather than one label misattributed to
   the wrong action.
-- `smoke-mcp.ps1`: 33 read-only checks verified against a live desktop.
+- `smoke-mcp.ps1`: 35 read-only checks verified against a live desktop.
 - `mutate-mcp.ps1`: 25 mutating checks verified (window state, input
   injection, UI Automation actions, file writes, env vars, process control).
 
@@ -184,7 +185,13 @@ covered by `smoke-mcp.ps1`'s "agent-efficiency features" section:
 - `read_ui_tree` takes an optional `max_depth` (1–20, default 5) and returns
   `{ elements, truncated, maxDepth, elementCount }` — `truncated` tells the
   caller the tree was cut so it can re-request deeper. `find_ui_element` also
-  accepts `max_depth`.
+  accepts `max_depth`. To shrink the payload, `read_ui_tree` also takes
+  `control_types` (keep only listed control types) and `interactable_only`
+  (keep only elements with an actionable pattern); `truncated` is still
+  computed over the full tree.
+- `ocr_screen` runs real on-device OCR (`Windows.Media.Ocr`) over the captured
+  pixels — it reads text drawn on screen, not just UIA metadata. One block per
+  recognised line, bounds in virtual-screen coordinates.
 - `find_window` / `wait_for_window`: `class_name` is matched exactly;
   `process_name` is a **substring** match by default (`"Notepad"` also matches
   `notepad++`) — pass `process_name_exact: true` for a whole-string match.

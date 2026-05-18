@@ -9,13 +9,47 @@ public sealed class UiAutomationService : IUiAutomationService
 {
     private readonly ConcurrentDictionary<string, AutomationElement> elements = new(StringComparer.OrdinalIgnoreCase);
 
-    public UiTreeResult ReadUiTree(long windowHandle, int maxDepth = 5)
+    public UiTreeResult ReadUiTree(long windowHandle, int maxDepth = 5, IReadOnlyList<string>? controlTypes = null, bool interactableOnly = false)
     {
         var depth = Math.Clamp(maxDepth, 1, 20);
         var root = GetRootElement(windowHandle);
         var truncated = false;
-        var elements = Flatten(root, depth, () => truncated = true).ToArray();
+
+        // Flatten is lazy; the filters compose on top of it. ToArray() still
+        // forces the full descent, so 'truncated' reflects the whole tree
+        // regardless of how many elements the filters keep.
+        IEnumerable<UiElementInfo> flattened = Flatten(root, depth, () => truncated = true);
+
+        if (controlTypes is { Count: > 0 })
+        {
+            var wanted = new HashSet<string>(controlTypes, StringComparer.OrdinalIgnoreCase);
+            flattened = flattened.Where(element => wanted.Contains(element.ControlType));
+        }
+
+        if (interactableOnly)
+        {
+            flattened = flattened.Where(IsInteractable);
+        }
+
+        var elements = flattened.ToArray();
         return new UiTreeResult(elements, truncated, depth, elements.Length);
+    }
+
+    // True when the element exposes a pattern an agent can act on. Used by
+    // read_ui_tree's interactable_only filter to drop purely structural noise
+    // (panes, static text, group containers) and shrink the payload.
+    private bool IsInteractable(UiElementInfo element)
+    {
+        if (!elements.TryGetValue(element.ElementRef, out var automationElement))
+        {
+            return false;
+        }
+
+        return automationElement.TryGetCurrentPattern(InvokePattern.Pattern, out _)
+            || automationElement.TryGetCurrentPattern(TogglePattern.Pattern, out _)
+            || automationElement.TryGetCurrentPattern(SelectionItemPattern.Pattern, out _)
+            || automationElement.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out _)
+            || automationElement.TryGetCurrentPattern(ValuePattern.Pattern, out _);
     }
 
     public IReadOnlyList<UiElementInfo> FindUiElement(long windowHandle, string? nameContains, string? automationId, string? controlType, string? className, bool enabledOnly, int maxDepth = 5)
