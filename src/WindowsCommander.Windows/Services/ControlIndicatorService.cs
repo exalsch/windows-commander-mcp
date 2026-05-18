@@ -278,9 +278,30 @@ public sealed class ControlIndicatorService : IControlIndicatorService
 
     private sealed class ControlIndicatorOverlayWindow : Window
     {
+        // Glow intensity at the three points of an action's life: the instant
+        // a tool runs (flash peak), the calm hold between actions (steady),
+        // and the faint "session still connected" border (idle).
+        private const double FlashOpacity = 1.0;
+        private const double SteadyOpacity = 0.6;
+        private const double IdleOpacity = 0.22;
+        private const double FlashBlur = 38;
+        private const double SteadyBlur = 18;
+        private const double IdleBlur = 11;
+
+        private static readonly Duration FlashDecay = new(TimeSpan.FromMilliseconds(550));
+        private static readonly Duration PhaseFade = new(TimeSpan.FromMilliseconds(450));
+        private static readonly Duration ChipMotion = new(TimeSpan.FromMilliseconds(220));
+
         private readonly Border border;
         private readonly StackPanel labelPanel;
         private readonly DropShadowEffect glow;
+
+        // Logical chip state, parallel lists. labelPanel.Children is a superset:
+        // it also holds chips that are mid fade-out.
+        private readonly List<ActivityLabel> chipModels = new();
+        private readonly List<Border> chipElements = new();
+
+        private double baseThickness = 4;
 
         public ControlIndicatorOverlayWindow()
         {
@@ -312,38 +333,27 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             glow = new DropShadowEffect
             {
                 ShadowDepth = 0,
-                BlurRadius = 22,
+                BlurRadius = SteadyBlur,
                 Opacity = 1.0,
                 Color = System.Windows.Media.Colors.Red
             };
 
+            // The frame sits at its steady level; each action drives a one-shot
+            // flash animation rather than an ambient breathing loop, so the
+            // glow visibly reacts to what is happening.
             border = new Border
             {
                 Background = System.Windows.Media.Brushes.Transparent,
                 Child = labelPanel,
-                Effect = glow
+                Effect = glow,
+                Opacity = SteadyOpacity
             };
 
             Content = border;
-
-            // A slow breathing pulse reads as "active" rather than a static
-            // frame. It runs continuously; window visibility gates whether it
-            // is seen, so there is nothing to start or stop per activation.
-            border.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation
-            {
-                From = 1.0,
-                To = 0.45,
-                Duration = TimeSpan.FromMilliseconds(750),
-                AutoReverse = true,
-                RepeatBehavior = RepeatBehavior.Forever,
-                EasingFunction = new SineEase()
-            });
         }
 
-        // Window opacity for the faint persistent idle border. Low enough to
-        // read as "session connected" without competing with the active glow.
-        private const double IdleOpacity = 0.3;
-
+        // Shows/refreshes the overlay. An Active phase fires a one-shot flash
+        // pulse for the action; an Idle phase fades down to the faint border.
         public void ShowOverlay(IReadOnlyList<ActivityLabel> messages, RectBounds bounds, ControlIndicatorConfig config, ActivityPhase phase)
         {
             Left = bounds.X;
@@ -353,69 +363,216 @@ public sealed class ControlIndicatorService : IControlIndicatorService
 
             var brush = ParseBrush(config.BorderColor);
             border.BorderBrush = brush;
-            border.BorderThickness = new Thickness(Math.Max(1, config.BorderThickness));
+            baseThickness = Math.Max(1, config.BorderThickness);
             glow.Color = (brush as SolidColorBrush)?.Color ?? System.Windows.Media.Colors.Red;
-            SetMessages(messages);
-            ApplyPhase(phase);
 
             if (!IsVisible)
             {
                 Show();
             }
-        }
 
-        // Switches an already-visible overlay between the bright active glow
-        // and the faint idle border without re-showing it.
-        public void SetPhase(ActivityPhase phase)
-        {
-            ApplyPhase(phase);
-        }
-
-        // Rebuilds the chip queue. Each action is its own box, so a partial
-        // render shows fewer chips rather than a label misattributed to the
-        // wrong action.
-        private void SetMessages(IReadOnlyList<ActivityLabel> messages)
-        {
-            labelPanel.Children.Clear();
-            for (var index = 0; index < messages.Count; index++)
+            if (phase == ActivityPhase.Active)
             {
-                labelPanel.Children.Add(BuildChip(messages[index], newest: index == messages.Count - 1));
+                UpdateChips(messages);
+                Flash();
+            }
+            else
+            {
+                EnterIdle();
             }
         }
 
-        private static Border BuildChip(ActivityLabel message, bool newest)
+        // Switches an already-visible overlay between an action flash and the
+        // faint idle border without re-showing it.
+        public void SetPhase(ActivityPhase phase)
         {
-            // The newest action stands out; older chips recede into history.
-            var alpha = (byte)(newest ? 215 : 140);
-            var background = message.Elevated
-                ? new SolidColorBrush(System.Windows.Media.Color.FromArgb(alpha, 150, 70, 0))
-                : new SolidColorBrush(System.Windows.Media.Color.FromArgb(alpha, 0, 0, 0));
+            if (phase == ActivityPhase.Active)
+            {
+                Flash();
+            }
+            else
+            {
+                EnterIdle();
+            }
+        }
 
+        // A sharp bright spike that decays back to the steady border, so every
+        // action visibly "lands" instead of blending into an ambient pulse.
+        private void Flash()
+        {
+            var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+
+            border.BeginAnimation(OpacityProperty, new DoubleAnimation
+            {
+                From = FlashOpacity,
+                To = SteadyOpacity,
+                Duration = FlashDecay,
+                EasingFunction = ease
+            });
+            glow.BeginAnimation(DropShadowEffect.BlurRadiusProperty, new DoubleAnimation
+            {
+                From = FlashBlur,
+                To = SteadyBlur,
+                Duration = FlashDecay,
+                EasingFunction = ease
+            });
+            border.BeginAnimation(Border.BorderThicknessProperty, new ThicknessAnimation
+            {
+                From = new Thickness(baseThickness * 2.2),
+                To = new Thickness(baseThickness),
+                Duration = FlashDecay,
+                EasingFunction = ease
+            });
+        }
+
+        // Fades to the faint persistent idle border and drops the chip history.
+        private void EnterIdle()
+        {
+            var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+
+            border.BeginAnimation(OpacityProperty, new DoubleAnimation { To = IdleOpacity, Duration = PhaseFade, EasingFunction = ease });
+            glow.BeginAnimation(DropShadowEffect.BlurRadiusProperty, new DoubleAnimation { To = IdleBlur, Duration = PhaseFade, EasingFunction = ease });
+            border.BeginAnimation(Border.BorderThicknessProperty, new ThicknessAnimation { To = new Thickness(baseThickness), Duration = PhaseFade });
+
+            labelPanel.Children.Clear();
+            chipModels.Clear();
+            chipElements.Clear();
+        }
+
+        // Reconciles the chip row with the new queue: chips dropped off the cap
+        // fade out, the freshly-appended chip fades and slides in, the rest are
+        // left untouched.
+        private void UpdateChips(IReadOnlyList<ActivityLabel> messages)
+        {
+            var offset = FindShiftOffset(messages);
+            if (offset < 0)
+            {
+                // Unrelated set (manual indicator, or a post-idle restart):
+                // rebuild without per-chip animation.
+                labelPanel.Children.Clear();
+                chipModels.Clear();
+                chipElements.Clear();
+                foreach (var message in messages)
+                {
+                    var rebuilt = CreateChip(message);
+                    chipModels.Add(message);
+                    chipElements.Add(rebuilt);
+                    labelPanel.Children.Add(rebuilt);
+                }
+
+                RestyleChips();
+                return;
+            }
+
+            // Fade out the leading chips that dropped off the cap.
+            for (var i = 0; i < offset; i++)
+            {
+                FadeChipOut(chipElements[i]);
+            }
+
+            chipModels.RemoveRange(0, offset);
+            chipElements.RemoveRange(0, offset);
+
+            // Append and animate in the freshly-queued chips.
+            for (var i = chipModels.Count; i < messages.Count; i++)
+            {
+                var chip = CreateChip(messages[i]);
+                chipModels.Add(messages[i]);
+                chipElements.Add(chip);
+                labelPanel.Children.Add(chip);
+                AnimateChipIn(chip);
+            }
+
+            RestyleChips();
+        }
+
+        // Smallest offset where the remaining current chips are a prefix of the
+        // new queue (a queue shift drops 0..n from the front and appends).
+        // -1 when the new queue is unrelated to what is shown.
+        private int FindShiftOffset(IReadOnlyList<ActivityLabel> messages)
+        {
+            for (var offset = 0; offset <= chipModels.Count; offset++)
+            {
+                var kept = chipModels.Count - offset;
+                if (kept > messages.Count)
+                {
+                    continue;
+                }
+
+                var match = true;
+                for (var i = 0; i < kept; i++)
+                {
+                    if (!chipModels[offset + i].Equals(messages[i]))
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                if (match)
+                {
+                    return offset;
+                }
+            }
+
+            return -1;
+        }
+
+        private static Border CreateChip(ActivityLabel message)
+        {
             return new Border
             {
-                Background = background,
                 CornerRadius = new CornerRadius(3),
                 Padding = new Thickness(7, 3, 7, 3),
                 Margin = new Thickness(0, 0, 4, 0),
+                RenderTransform = new TranslateTransform(),
                 Child = new TextBlock
                 {
                     Text = message.Text,
                     Foreground = System.Windows.Media.Brushes.White,
-                    FontSize = 12,
-                    FontWeight = newest ? FontWeights.SemiBold : FontWeights.Normal,
-                    Opacity = newest ? 1.0 : 0.65
+                    FontSize = 12
                 }
             };
         }
 
-        private void ApplyPhase(ActivityPhase phase)
+        // Fades and slides a freshly-appended chip in from the right.
+        private static void AnimateChipIn(Border chip)
         {
-            Opacity = phase == ActivityPhase.Active ? 1.0 : IdleOpacity;
-            // The label chips are noise once the action is over; the idle
-            // border alone carries the "session still connected" cue.
-            labelPanel.Visibility = phase == ActivityPhase.Active
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+            var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+            chip.Opacity = 0;
+            var slide = (TranslateTransform)chip.RenderTransform;
+            slide.X = 24;
+
+            chip.BeginAnimation(OpacityProperty, new DoubleAnimation { From = 0, To = 1, Duration = ChipMotion, EasingFunction = ease });
+            slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation { From = 24, To = 0, Duration = ChipMotion, EasingFunction = ease });
+        }
+
+        // Fades a dropped chip out, then removes it from the panel.
+        private void FadeChipOut(Border chip)
+        {
+            var fade = new DoubleAnimation
+            {
+                To = 0,
+                Duration = new Duration(TimeSpan.FromMilliseconds(160)),
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+            };
+            fade.Completed += (_, _) => labelPanel.Children.Remove(chip);
+            chip.BeginAnimation(OpacityProperty, fade);
+        }
+
+        // The newest chip stands out (brighter, semi-bold); older chips recede.
+        private void RestyleChips()
+        {
+            for (var i = 0; i < chipElements.Count; i++)
+            {
+                var newest = i == chipElements.Count - 1;
+                var message = chipModels[i];
+                var alpha = (byte)(newest ? 220 : 145);
+                chipElements[i].Background = message.Elevated
+                    ? new SolidColorBrush(System.Windows.Media.Color.FromArgb(alpha, 150, 70, 0))
+                    : new SolidColorBrush(System.Windows.Media.Color.FromArgb(alpha, 0, 0, 0));
+                ((TextBlock)chipElements[i].Child).FontWeight = newest ? FontWeights.SemiBold : FontWeights.Normal;
+            }
         }
 
         private static System.Windows.Media.Brush ParseBrush(string color)
