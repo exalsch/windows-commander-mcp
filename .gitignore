@@ -78,5 +78,6 @@ packages/
 
 # MCP/client local state
 .mcp/
+.mcp.json
 mcp.json
 mcp.local.json
