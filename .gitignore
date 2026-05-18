@@ -15,6 +15,7 @@ obj/
 out/
 artifacts/
 publish/
+dist/
 TestResults/
 BenchmarkDotNet.Artifacts/
 

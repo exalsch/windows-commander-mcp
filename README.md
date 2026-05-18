@@ -101,29 +101,65 @@ Example tool call:
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_system_info","arguments":{}}}
 ```
 
+## Release Package
+
+`tools/package-release.ps1` builds a distributable zip:
+
+```powershell
+pwsh tools/package-release.ps1 -Version 0.1.0
+```
+
+It publishes the server **self-contained** — the .NET runtime is bundled, so
+the target machine needs nothing pre-installed — and writes:
+
+```text
+dist\windows-commander-mcp-v<version>-win-x64.zip
+```
+
+Unzip it to a stable folder; `WindowsCommander.McpServer.exe` sits at the root
+of the archive. For a smaller package that requires the .NET 8 Desktop Runtime
+on the host, pass `-SelfContained $false`.
+
 ## MCP Client Configuration
 
-Use the published executable as a stdio MCP server command in your MCP client.
-
-Example command shape:
+The server is a stdio MCP server: the MCP client launches the executable and
+talks to it over stdin/stdout. Point your client's `.mcp.json` at the
+`WindowsCommander.McpServer.exe` you unzipped from the release package, using
+its full absolute path:
 
 ```json
 {
   "mcpServers": {
     "windows-commander": {
-      "command": "C:\\PROGRAMMING\\MCP_Servers\\windows-commander-mcp\\src\\WindowsCommander.McpServer\\bin\\Release\\net8.0-windows10.0.19041.0\\win-x64\\publish\\WindowsCommander.McpServer.exe",
+      "command": "C:\\Tools\\windows-commander-mcp\\WindowsCommander.McpServer.exe",
       "args": []
     }
   }
 }
 ```
 
-Publish first and point the MCP client at the generated executable.
+High-risk tools (process kills, file writes/deletes, environment changes,
+script execution) prompt for local confirmation by default. To disable the
+prompt for unattended/automated hosts, add an `env` block:
 
-## Publish
+```json
+{
+  "mcpServers": {
+    "windows-commander": {
+      "command": "C:\\Tools\\windows-commander-mcp\\WindowsCommander.McpServer.exe",
+      "args": [],
+      "env": { "WINDOWS_COMMANDER_UNATTENDED": "1" }
+    }
+  }
+}
+```
+
+## Build from source
+
+For development, publish directly instead of packaging:
 
 ```powershell
-dotnet publish src/WindowsCommander.McpServer/WindowsCommander.McpServer.csproj -c Release -r win-x64 --self-contained true
+dotnet publish src/WindowsCommander.McpServer/WindowsCommander.McpServer.csproj -c Release -r win-x64
 ```
 
 The generated executable is:
