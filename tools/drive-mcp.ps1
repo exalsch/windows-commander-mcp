@@ -151,6 +151,11 @@ try {
     $minX = [int](($allBounds.x | Measure-Object -Minimum).Minimum)
     $minY = [int](($allBounds.y | Measure-Object -Minimum).Minimum)
     Write-Host "   virtual top-left corner: ($minX, $minY)"
+    # Let the overlay's WPF render thread catch up so the verification shot
+    # shows the accumulated activity-chip queue rather than a half-rendered
+    # frame. (A live human watching the screen sees the chips immediately;
+    # this delay only matters for a screenshot taken microseconds later.)
+    Start-Sleep -Milliseconds 700
     $region = Invoke-Tool -Proc $proc -Name 'capture_screen_region' -Arguments @{
         x = $minX; y = $minY; width = 760; height = 240
     }

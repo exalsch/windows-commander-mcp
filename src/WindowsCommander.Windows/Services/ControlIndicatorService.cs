@@ -20,6 +20,9 @@ internal enum ActivityPhase
     Idle
 }
 
+// One entry in the activity-label queue shown along the glow's top edge.
+internal readonly record struct ActivityLabel(string Text, bool Elevated);
+
 public sealed class ControlIndicatorService : IControlIndicatorService
 {
     // How long the bright activity glow lingers after the last computer-use
@@ -31,6 +34,14 @@ public sealed class ControlIndicatorService : IControlIndicatorService
     private static readonly TimeSpan SessionIdleHold = TimeSpan.FromSeconds(30);
 
     private readonly object syncRoot = new();
+
+    // The activity-label queue: recent actions shown as horizontal chips so a
+    // burst of calls reads as a short history. New chips append on the right,
+    // the oldest drop off at the cap. Because each chip is a separate box, a
+    // screenshot taken mid-render shows fewer chips rather than a stale label
+    // misattributed to the current action.
+    private const int MaxActivityLabels = 5;
+    private readonly Queue<ActivityLabel> activityLabels = new();
 
     // One overlay window per glowed rectangle. Accessed only on the overlay
     // dispatcher thread, so it needs no locking of its own.
@@ -58,7 +69,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
         status = new ControlIndicatorStatus(IsVisible: config.VisualEnabled, message, bounds, config);
         if (config.VisualEnabled)
         {
-            ShowOverlay(message, RectanglesFor(bounds), config, ActivityPhase.Active);
+            ShowOverlay(new[] { new ActivityLabel(message, false) }, RectanglesFor(bounds), config, ActivityPhase.Active);
         }
         else
         {
@@ -81,7 +92,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
         status = status with { Config = config };
         if (status.IsVisible && config.VisualEnabled)
         {
-            ShowOverlay(status.Message ?? string.Empty, RectanglesFor(status.Bounds), config, ActivityPhase.Active);
+            ShowOverlay(new[] { new ActivityLabel(status.Message ?? string.Empty, false) }, RectanglesFor(status.Bounds), config, ActivityPhase.Active);
         }
         else if (!config.VisualEnabled)
         {
@@ -107,11 +118,23 @@ public sealed class ControlIndicatorService : IControlIndicatorService
                 return;
             }
 
+            // Append the action to the label queue, capped at MaxActivityLabels.
+            ActivityLabel[] queue;
+            lock (syncRoot)
+            {
+                activityLabels.Enqueue(new ActivityLabel($"{(elevated ? "⚠" : "⚡")} {message}", elevated));
+                while (activityLabels.Count > MaxActivityLabels)
+                {
+                    activityLabels.Dequeue();
+                }
+
+                queue = activityLabels.ToArray();
+            }
+
             // High-risk actions glow in a warning colour: the cue then says
             // "automation is doing something risky", not merely "active".
             var overlayConfig = elevated ? config with { BorderColor = "Orange" } : config;
-            var label = $"{(elevated ? "⚠" : "⚡")} {message}";
-            ShowOverlay(label, RectanglesFor(null), overlayConfig, ActivityPhase.Active);
+            ShowOverlay(queue, RectanglesFor(null), overlayConfig, ActivityPhase.Active);
 
             lock (syncRoot)
             {
@@ -122,6 +145,13 @@ public sealed class ControlIndicatorService : IControlIndicatorService
                 {
                     if (!status.IsVisible)
                     {
+                        // The action history is stale once activity stops:
+                        // clear it so the next burst starts with a fresh queue.
+                        lock (syncRoot)
+                        {
+                            activityLabels.Clear();
+                        }
+
                         SetOverlayPhase(ActivityPhase.Idle);
                     }
                 });
@@ -173,7 +203,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             .ToArray();
     }
 
-    private void ShowOverlay(string message, IReadOnlyList<RectBounds> rectangles, ControlIndicatorConfig overlayConfig, ActivityPhase phase)
+    private void ShowOverlay(IReadOnlyList<ActivityLabel> messages, IReadOnlyList<RectBounds> rectangles, ControlIndicatorConfig overlayConfig, ActivityPhase phase)
     {
         EnsureOverlayThread();
         overlayDispatcher?.Invoke(() =>
@@ -185,7 +215,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
 
             for (var index = 0; index < rectangles.Count; index++)
             {
-                overlayWindows[index].ShowOverlay(message, rectangles[index], overlayConfig, phase);
+                overlayWindows[index].ShowOverlay(messages, rectangles[index], overlayConfig, phase);
             }
 
             // Hide any windows left over from a previous, larger set.
@@ -249,7 +279,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
     private sealed class ControlIndicatorOverlayWindow : Window
     {
         private readonly Border border;
-        private readonly TextBlock label;
+        private readonly StackPanel labelPanel;
         private readonly DropShadowEffect glow;
 
         public ControlIndicatorOverlayWindow()
@@ -266,14 +296,14 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             // steal focus from the very window the automation is driving.
             ShowActivated = false;
 
-            label = new TextBlock
+            // A horizontal queue of action chips, anchored to the top-left of
+            // the framed screen.
+            labelPanel = new StackPanel
             {
-                Foreground = System.Windows.Media.Brushes.White,
-                Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(180, 0, 0, 0)),
-                Padding = new Thickness(8, 4, 8, 4),
-                FontSize = 13,
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
-                VerticalAlignment = System.Windows.VerticalAlignment.Top
+                VerticalAlignment = System.Windows.VerticalAlignment.Top,
+                Margin = new Thickness(6)
             };
 
             // ShadowDepth 0 turns the drop shadow into a symmetric glow that
@@ -290,7 +320,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             border = new Border
             {
                 Background = System.Windows.Media.Brushes.Transparent,
-                Child = label,
+                Child = labelPanel,
                 Effect = glow
             };
 
@@ -314,7 +344,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
         // read as "session connected" without competing with the active glow.
         private const double IdleOpacity = 0.3;
 
-        public void ShowOverlay(string message, RectBounds bounds, ControlIndicatorConfig config, ActivityPhase phase)
+        public void ShowOverlay(IReadOnlyList<ActivityLabel> messages, RectBounds bounds, ControlIndicatorConfig config, ActivityPhase phase)
         {
             Left = bounds.X;
             Top = bounds.Y;
@@ -325,7 +355,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             border.BorderBrush = brush;
             border.BorderThickness = new Thickness(Math.Max(1, config.BorderThickness));
             glow.Color = (brush as SolidColorBrush)?.Color ?? System.Windows.Media.Colors.Red;
-            label.Text = message;
+            SetMessages(messages);
             ApplyPhase(phase);
 
             if (!IsVisible)
@@ -341,12 +371,49 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             ApplyPhase(phase);
         }
 
+        // Rebuilds the chip queue. Each action is its own box, so a partial
+        // render shows fewer chips rather than a label misattributed to the
+        // wrong action.
+        private void SetMessages(IReadOnlyList<ActivityLabel> messages)
+        {
+            labelPanel.Children.Clear();
+            for (var index = 0; index < messages.Count; index++)
+            {
+                labelPanel.Children.Add(BuildChip(messages[index], newest: index == messages.Count - 1));
+            }
+        }
+
+        private static Border BuildChip(ActivityLabel message, bool newest)
+        {
+            // The newest action stands out; older chips recede into history.
+            var alpha = (byte)(newest ? 215 : 140);
+            var background = message.Elevated
+                ? new SolidColorBrush(System.Windows.Media.Color.FromArgb(alpha, 150, 70, 0))
+                : new SolidColorBrush(System.Windows.Media.Color.FromArgb(alpha, 0, 0, 0));
+
+            return new Border
+            {
+                Background = background,
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(7, 3, 7, 3),
+                Margin = new Thickness(0, 0, 4, 0),
+                Child = new TextBlock
+                {
+                    Text = message.Text,
+                    Foreground = System.Windows.Media.Brushes.White,
+                    FontSize = 12,
+                    FontWeight = newest ? FontWeights.SemiBold : FontWeights.Normal,
+                    Opacity = newest ? 1.0 : 0.65
+                }
+            };
+        }
+
         private void ApplyPhase(ActivityPhase phase)
         {
             Opacity = phase == ActivityPhase.Active ? 1.0 : IdleOpacity;
-            // The label is noise once the action is over; the idle border alone
-            // carries the "session still connected" cue.
-            label.Visibility = phase == ActivityPhase.Active
+            // The label chips are noise once the action is over; the idle
+            // border alone carries the "session still connected" cue.
+            labelPanel.Visibility = phase == ActivityPhase.Active
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         }

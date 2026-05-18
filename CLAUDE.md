@@ -131,10 +131,14 @@ match, so `process_name: "Notepad"` also matches `notepad++`.
   tools (process kills, file writes/deletes, env changes, script execution)
   require a local confirmation dialog before they run; the audit log records
   the risk level and any blocked attempt. See *Safety / unattended mode* below.
-- **Indicator phases**: the activity glow shows a bright pulse with a friendly
-  label ("⚡ typing text") during an action, settles to a faint persistent
-  border for 30 s (session still connected), then hides. High-risk actions
-  glow orange with a "⚠" label.
+- **Indicator phases**: the activity glow shows a bright pulse during an
+  action, settles to a faint persistent border for 30 s (session still
+  connected), then hides. High-risk actions glow orange with a "⚠" label.
+- **Activity-chip queue**: recent actions render as a horizontal queue of
+  labelled chips ("⚡ typing text") along the glow's top edge, newest
+  highlighted, capped at 5. Because each action is its own chip, a screenshot
+  caught mid-render shows fewer chips rather than one label misattributed to
+  the wrong action.
 - `smoke-mcp.ps1`: 33 read-only checks verified against a live desktop.
 - `mutate-mcp.ps1`: 25 mutating checks verified (window state, input
   injection, UI Automation actions, file writes, env vars, process control).
