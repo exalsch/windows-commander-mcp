@@ -41,7 +41,11 @@ public sealed class ControlIndicatorService : IControlIndicatorService
     // screenshot taken mid-render shows fewer chips rather than a stale label
     // misattributed to the current action.
     private const int MaxActivityLabels = 5;
-    private readonly Queue<ActivityLabel> activityLabels = new();
+
+    // Each chip fades out this long after it was added, so the queue shows a
+    // rolling window of just-happened actions rather than the whole session.
+    private static readonly TimeSpan ChipLifetime = TimeSpan.FromSeconds(4);
+    private readonly List<(ActivityLabel Label, DateTime AddedUtc)> activityLabels = new();
 
     // One overlay window per glowed rectangle. Accessed only on the overlay
     // dispatcher thread, so it needs no locking of its own.
@@ -53,6 +57,7 @@ public sealed class ControlIndicatorService : IControlIndicatorService
     private Dispatcher? overlayDispatcher;
     private System.Threading.Timer? activeToIdleTimer;
     private System.Threading.Timer? idleToHiddenTimer;
+    private System.Threading.Timer? chipExpiryTimer;
 
     public ControlIndicatorService()
     {
@@ -118,18 +123,21 @@ public sealed class ControlIndicatorService : IControlIndicatorService
                 return;
             }
 
-            // Append the action to the label queue, capped at MaxActivityLabels.
+            // Append the action to the label queue, drop expired ones, cap it.
             ActivityLabel[] queue;
             lock (syncRoot)
             {
-                activityLabels.Enqueue(new ActivityLabel($"{(elevated ? "⚠" : "⚡")} {message}", elevated));
+                activityLabels.Add((new ActivityLabel($"{(elevated ? "⚠" : "⚡")} {message}", elevated), DateTime.UtcNow));
+                PruneExpiredChips();
                 while (activityLabels.Count > MaxActivityLabels)
                 {
-                    activityLabels.Dequeue();
+                    activityLabels.RemoveAt(0);
                 }
 
-                queue = activityLabels.ToArray();
+                queue = activityLabels.Select(entry => entry.Label).ToArray();
             }
+
+            ScheduleChipExpiry();
 
             // High-risk actions glow in a warning colour: the cue then says
             // "automation is doing something risky", not merely "active".
@@ -138,20 +146,15 @@ public sealed class ControlIndicatorService : IControlIndicatorService
 
             lock (syncRoot)
             {
-                // Active glow -> faint idle border after ActivityHold; faint
-                // idle border -> hidden after a further SessionIdleHold. Both
-                // are deferred while a manual indicator is shown.
+                // Active glow -> faint idle border after ActivityHold (the chip
+                // history stays visible); idle border -> hidden after a further
+                // SessionIdleHold. Both are deferred while a manual indicator
+                // is shown. Agent actions are usually seconds apart, so the
+                // chips must persist across the gaps for the queue to build.
                 activeToIdleTimer ??= new System.Threading.Timer(_ =>
                 {
                     if (!status.IsVisible)
                     {
-                        // The action history is stale once activity stops:
-                        // clear it so the next burst starts with a fresh queue.
-                        lock (syncRoot)
-                        {
-                            activityLabels.Clear();
-                        }
-
                         SetOverlayPhase(ActivityPhase.Idle);
                     }
                 });
@@ -159,12 +162,72 @@ public sealed class ControlIndicatorService : IControlIndicatorService
                 {
                     if (!status.IsVisible)
                     {
+                        lock (syncRoot)
+                        {
+                            activityLabels.Clear();
+                        }
+
                         HideOverlay();
                     }
                 });
                 activeToIdleTimer.Change(ActivityHold, Timeout.InfiniteTimeSpan);
                 idleToHiddenTimer.Change(SessionIdleHold, Timeout.InfiniteTimeSpan);
             }
+        }
+        catch
+        {
+            // Ignore: the indicator is a courtesy, not part of the contract.
+        }
+    }
+
+    // Drops chips older than ChipLifetime. Must be called holding syncRoot.
+    private void PruneExpiredChips()
+    {
+        var cutoff = DateTime.UtcNow - ChipLifetime;
+        activityLabels.RemoveAll(entry => entry.AddedUtc < cutoff);
+    }
+
+    // Arms the expiry timer to fire when the oldest chip is due to leave.
+    private void ScheduleChipExpiry()
+    {
+        lock (syncRoot)
+        {
+            chipExpiryTimer ??= new System.Threading.Timer(_ => OnChipExpiry());
+            if (activityLabels.Count == 0)
+            {
+                return;
+            }
+
+            var due = (activityLabels[0].AddedUtc + ChipLifetime) - DateTime.UtcNow;
+            chipExpiryTimer.Change(due < TimeSpan.Zero ? TimeSpan.Zero : due, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    // Fired when a chip's lifetime ends: prune, re-render the shrunk queue
+    // (the overlay fades the dropped chips out), then arm for the next one.
+    private void OnChipExpiry()
+    {
+        try
+        {
+            ActivityLabel[] queue;
+            lock (syncRoot)
+            {
+                PruneExpiredChips();
+                queue = activityLabels.Select(entry => entry.Label).ToArray();
+            }
+
+            overlayDispatcher?.Invoke(() =>
+            {
+                foreach (var window in overlayWindows)
+                {
+                    if (window.IsVisible)
+                    {
+                        window.RefreshChips(queue);
+                    }
+                }
+            });
+
+            ScheduleChipExpiry();
         }
         catch
         {
@@ -278,19 +341,24 @@ public sealed class ControlIndicatorService : IControlIndicatorService
 
     private sealed class ControlIndicatorOverlayWindow : Window
     {
-        // Glow intensity at the three points of an action's life: the instant
-        // a tool runs (flash peak), the calm hold between actions (steady),
-        // and the faint "session still connected" border (idle).
-        private const double FlashOpacity = 1.0;
-        private const double SteadyOpacity = 0.6;
-        private const double IdleOpacity = 0.22;
+        // Glow-halo opacity at the three points of an action's life: the
+        // instant a tool runs (flash peak), the calm hold between actions
+        // (steady), and the faint "session still connected" border (idle).
+        // Driven on the drop-shadow effect, not the border, so the chip row
+        // stays fully readable throughout.
+        private const double FlashGlow = 1.0;
+        private const double SteadyGlow = 0.7;
+        private const double IdleGlow = 0.32;
         private const double FlashBlur = 38;
         private const double SteadyBlur = 18;
         private const double IdleBlur = 11;
 
         private static readonly Duration FlashDecay = new(TimeSpan.FromMilliseconds(550));
         private static readonly Duration PhaseFade = new(TimeSpan.FromMilliseconds(450));
-        private static readonly Duration ChipMotion = new(TimeSpan.FromMilliseconds(220));
+        private static readonly Duration ChipMotion = new(TimeSpan.FromMilliseconds(260));
+
+        // How far a freshly-queued chip slides in from the right.
+        private const double ChipSlide = 40;
 
         private readonly Border border;
         private readonly StackPanel labelPanel;
@@ -334,19 +402,19 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             {
                 ShadowDepth = 0,
                 BlurRadius = SteadyBlur,
-                Opacity = 1.0,
+                Opacity = SteadyGlow,
                 Color = System.Windows.Media.Colors.Red
             };
 
             // The frame sits at its steady level; each action drives a one-shot
-            // flash animation rather than an ambient breathing loop, so the
-            // glow visibly reacts to what is happening.
+            // flash on the glow halo rather than an ambient breathing loop, so
+            // it visibly reacts. The border itself stays at full opacity so the
+            // chip row never dims.
             border = new Border
             {
                 Background = System.Windows.Media.Brushes.Transparent,
                 Child = labelPanel,
-                Effect = glow,
-                Opacity = SteadyOpacity
+                Effect = glow
             };
 
             Content = border;
@@ -368,6 +436,11 @@ public sealed class ControlIndicatorService : IControlIndicatorService
 
             if (!IsVisible)
             {
+                // A hidden -> shown transition starts a fresh session: drop any
+                // chips left over so the new queue animates in cleanly.
+                labelPanel.Children.Clear();
+                chipModels.Clear();
+                chipElements.Clear();
                 Show();
             }
 
@@ -396,16 +469,25 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             }
         }
 
-        // A sharp bright spike that decays back to the steady border, so every
+        // Re-renders the chip row (fading expired chips out) with no flash and
+        // no phase change — used when a chip's lifetime ends between actions.
+        public void RefreshChips(IReadOnlyList<ActivityLabel> messages)
+        {
+            UpdateChips(messages);
+        }
+
+        // A sharp bright spike that decays back to the steady glow, so every
         // action visibly "lands" instead of blending into an ambient pulse.
+        // The glow halo carries the flash; the border stroke and chips do not
+        // dim, so the chip history stays readable.
         private void Flash()
         {
             var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
 
-            border.BeginAnimation(OpacityProperty, new DoubleAnimation
+            glow.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation
             {
-                From = FlashOpacity,
-                To = SteadyOpacity,
+                From = FlashGlow,
+                To = SteadyGlow,
                 Duration = FlashDecay,
                 EasingFunction = ease
             });
@@ -425,18 +507,16 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             });
         }
 
-        // Fades to the faint persistent idle border and drops the chip history.
+        // Fades the glow down to the faint persistent idle level. The chip row
+        // stays put — it is a rolling history of recent actions and only clears
+        // when the session goes fully idle and the overlay hides.
         private void EnterIdle()
         {
             var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
 
-            border.BeginAnimation(OpacityProperty, new DoubleAnimation { To = IdleOpacity, Duration = PhaseFade, EasingFunction = ease });
+            glow.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation { To = IdleGlow, Duration = PhaseFade, EasingFunction = ease });
             glow.BeginAnimation(DropShadowEffect.BlurRadiusProperty, new DoubleAnimation { To = IdleBlur, Duration = PhaseFade, EasingFunction = ease });
             border.BeginAnimation(Border.BorderThicknessProperty, new ThicknessAnimation { To = new Thickness(baseThickness), Duration = PhaseFade });
-
-            labelPanel.Children.Clear();
-            chipModels.Clear();
-            chipElements.Clear();
         }
 
         // Reconciles the chip row with the new queue: chips dropped off the cap
@@ -541,10 +621,10 @@ public sealed class ControlIndicatorService : IControlIndicatorService
             var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
             chip.Opacity = 0;
             var slide = (TranslateTransform)chip.RenderTransform;
-            slide.X = 24;
+            slide.X = ChipSlide;
 
             chip.BeginAnimation(OpacityProperty, new DoubleAnimation { From = 0, To = 1, Duration = ChipMotion, EasingFunction = ease });
-            slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation { From = 24, To = 0, Duration = ChipMotion, EasingFunction = ease });
+            slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation { From = ChipSlide, To = 0, Duration = ChipMotion, EasingFunction = ease });
         }
 
         // Fades a dropped chip out, then removes it from the panel.
