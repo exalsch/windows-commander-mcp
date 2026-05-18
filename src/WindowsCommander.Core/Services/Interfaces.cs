@@ -153,7 +153,7 @@ public interface IVisionService
 
     ScreenCaptureResult CaptureScreenRegion(int x, int y, int width, int height, string? monitorId, int? maxDimension);
 
-    OcrResult OcrScreen(string target, long? windowHandle, RectBounds? region);
+    Task<OcrResult> OcrScreenAsync(string target, long? windowHandle, RectBounds? region);
 
     VisualDetectionResult DetectVisualElements(string target, long? windowHandle, RectBounds? region, IReadOnlyList<string>? elementTypes);
 }

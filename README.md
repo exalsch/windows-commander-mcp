@@ -111,7 +111,7 @@ Example command shape:
 {
   "mcpServers": {
     "windows-commander": {
-      "command": "C:\\PROGRAMMING\\MCP_Servers\\windows-commander-mcp\\src\\WindowsCommander.McpServer\\bin\\Release\\net8.0-windows\\win-x64\\publish\\WindowsCommander.McpServer.exe",
+      "command": "C:\\PROGRAMMING\\MCP_Servers\\windows-commander-mcp\\src\\WindowsCommander.McpServer\\bin\\Release\\net8.0-windows10.0.19041.0\\win-x64\\publish\\WindowsCommander.McpServer.exe",
       "args": []
     }
   }
@@ -129,7 +129,7 @@ dotnet publish src/WindowsCommander.McpServer/WindowsCommander.McpServer.csproj 
 The generated executable is:
 
 ```text
-src\WindowsCommander.McpServer\bin\Release\net8.0-windows\win-x64\publish\WindowsCommander.McpServer.exe
+src\WindowsCommander.McpServer\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\WindowsCommander.McpServer.exe
 ```
 
 ## Safety Model

@@ -28,7 +28,7 @@
 [CmdletBinding()]
 param(
     [string]$Text = "windows-commander typing test - em-dash there & 'quotes' + symbols (){}[] ~ done.",
-    [string]$ServerExe = "$PSScriptRoot\..\src\WindowsCommander.McpServer\bin\Release\net8.0-windows\win-x64\publish\WindowsCommander.McpServer.exe",
+    [string]$ServerExe = "$PSScriptRoot\..\src\WindowsCommander.McpServer\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\WindowsCommander.McpServer.exe",
     [string]$ShotPath = "$PSScriptRoot\..\artifacts\typing-test.png",
     [string]$ShotFullPath = "$PSScriptRoot\..\artifacts\typing-test-full.png"
 )
@@ -139,6 +139,15 @@ try {
     if (-not $img) { throw "capture_screen returned no image content." }
     [System.IO.File]::WriteAllBytes($ShotPath, [Convert]::FromBase64String($img.data))
     Write-Host "   screenshot saved: $ShotPath ($((Get-Item $ShotPath).Length) bytes)" -ForegroundColor Green
+
+    Write-Host "7b. ocr_screen (read the typed text back via real OCR)..." -ForegroundColor Cyan
+    $ocr = Invoke-Tool -Proc $proc -Name 'ocr_screen' -Arguments @{ target = 'window'; hwnd = $hwnd }
+    $ocrText = (Get-TextContent $ocr | ConvertFrom-Json).combinedText
+    Write-Host "   OCR read: $($ocrText -replace '\s+', ' ')"
+    if ($ocrText -notmatch 'typing test') {
+        throw "OCR did not read the typed text back (expected to contain 'typing test')."
+    }
+    Write-Host "   OCR verified the typed text." -ForegroundColor Green
 
     # capture_screen_region is itself a computer-use tool, so this call
     # re-signals activity and the screen-edge glow is lit when captured. A

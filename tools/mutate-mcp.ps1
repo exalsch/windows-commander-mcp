@@ -17,7 +17,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$ServerExe = "$PSScriptRoot\..\src\WindowsCommander.McpServer\bin\Release\net8.0-windows\win-x64\publish\WindowsCommander.McpServer.exe"
+    [string]$ServerExe = "$PSScriptRoot\..\src\WindowsCommander.McpServer\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\WindowsCommander.McpServer.exe"
 )
 
 $ErrorActionPreference = 'Stop'

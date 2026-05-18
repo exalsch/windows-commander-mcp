@@ -527,7 +527,7 @@ public sealed class ToolDispatcher
             "invoke_ui_element" => uiAutomationService.InvokeUiElement(GetRequiredString(arguments, "element_ref"), GetRequiredString(arguments, "action")),
             "set_ui_value" => uiAutomationService.SetUiValue(GetRequiredString(arguments, "element_ref"), GetRequiredString(arguments, "value")),
             "get_ui_element_details" => uiAutomationService.GetUiElementDetails(GetRequiredString(arguments, "element_ref")),
-            "ocr_screen" => visionService.OcrScreen(GetRequiredString(arguments, "target"), GetLong(arguments, "hwnd"), GetRect(arguments, "region")),
+            "ocr_screen" => await visionService.OcrScreenAsync(GetRequiredString(arguments, "target"), GetLong(arguments, "hwnd"), GetRect(arguments, "region")),
             "detect_visual_elements" => visionService.DetectVisualElements(
                 GetRequiredString(arguments, "target"),
                 GetLong(arguments, "hwnd"),
