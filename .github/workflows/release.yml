@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Windows-only: the server targets net10.0-windows and uses WPF/WinForms,
+    # so it cannot build on a Linux runner.
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Resolve version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $prerelease = if ($version -match '-') { 'true' } else { 'false' }
+          "value=$version"          >> $env:GITHUB_OUTPUT
+          "prerelease=$prerelease"  >> $env:GITHUB_OUTPUT
+          Write-Host "Release version: $version (prerelease=$prerelease)"
+
+      - name: Run tests (release gate)
+        run: dotnet test WindowsCommander.slnx -c Release
+
+      - name: Package release
+        shell: pwsh
+        run: pwsh tools/package-release.ps1 -Version ${{ steps.version.outputs.value }}
+
+      - name: Generate SHA256 checksum
+        shell: pwsh
+        run: |
+          $zip = "dist/windows-commander-mcp-v${{ steps.version.outputs.value }}-win-x64.zip"
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  $(Split-Path $zip -Leaf)" | Out-File "$zip.sha256" -Encoding ascii
+          Write-Host "SHA256: $hash"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: windows-commander-mcp ${{ steps.version.outputs.value }}
+          generate_release_notes: true
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          files: |
+            dist/windows-commander-mcp-v${{ steps.version.outputs.value }}-win-x64.zip
+            dist/windows-commander-mcp-v${{ steps.version.outputs.value }}-win-x64.zip.sha256
