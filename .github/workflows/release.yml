@@ -27,18 +27,19 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $version = '${{ github.ref_name }}' -replace '^v', ''
           $prerelease = if ($version -match '-') { 'true' } else { 'false' }
           "value=$version"          >> $env:GITHUB_OUTPUT
           "prerelease=$prerelease"  >> $env:GITHUB_OUTPUT
           Write-Host "Release version: $version (prerelease=$prerelease)"
 
       - name: Run tests (release gate)
+        shell: pwsh
         run: dotnet test WindowsCommander.slnx -c Release
 
       - name: Package release
         shell: pwsh
-        run: pwsh tools/package-release.ps1 -Version ${{ steps.version.outputs.value }}
+        run: pwsh tools/package-release.ps1 -Version '${{ steps.version.outputs.value }}'
 
       - name: Generate SHA256 checksum
         shell: pwsh
