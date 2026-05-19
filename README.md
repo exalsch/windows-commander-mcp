@@ -101,24 +101,36 @@ Example tool call:
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_system_info","arguments":{}}}
 ```
 
-## Release Package
+## Install (release package)
 
-`tools/package-release.ps1` builds a distributable zip:
+Each tagged release publishes a ready-to-run, self-contained package on the
+[GitHub Releases page](../../releases) — no .NET runtime or build tools needed
+on the target machine.
+
+1. Download `windows-commander-mcp-v<version>-win-x64.zip` from the latest
+   release.
+2. (Optional) Verify it against the published `.sha256` file:
+   `(Get-FileHash <zip> -Algorithm SHA256).Hash`.
+3. Unzip it to a stable folder, e.g. `C:\Tools\windows-commander-mcp`.
+4. Point your MCP client's `.mcp.json` at the `WindowsCommander.McpServer.exe`
+   at the root of the unzipped folder (see *MCP Client Configuration* below).
+
+Releases are produced automatically: pushing a `v*` git tag runs the
+`.github/workflows/release.yml` workflow, which tests, packages, and publishes
+the zip.
+
+### Building a package locally
+
+`tools/package-release.ps1` builds the same zip without GitHub Actions:
 
 ```powershell
 pwsh tools/package-release.ps1 -Version 0.1.0
 ```
 
-It publishes the server **self-contained** — the .NET runtime is bundled, so
-the target machine needs nothing pre-installed — and writes:
-
-```text
-dist\windows-commander-mcp-v<version>-win-x64.zip
-```
-
-Unzip it to a stable folder; `WindowsCommander.McpServer.exe` sits at the root
-of the archive. For a smaller package that requires the .NET 10 Desktop Runtime
-on the host, pass `-SelfContained $false`.
+It publishes the server **self-contained** and writes
+`dist\windows-commander-mcp-v<version>-win-x64.zip`. For a smaller package
+that requires the .NET 10 Desktop Runtime on the host, pass
+`-SelfContained $false`.
 
 ## MCP Client Configuration
 
