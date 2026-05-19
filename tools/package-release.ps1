@@ -50,8 +50,10 @@ Get-Process -Name 'WindowsCommander.McpServer' -ErrorAction SilentlyContinue | S
 Start-Sleep -Milliseconds 400
 
 $selfContainedFlag = $SelfContained.ToString().ToLowerInvariant()
-Write-Host "Publishing $Configuration / $Runtime (self-contained=$selfContainedFlag)..." -ForegroundColor Cyan
-dotnet publish $project -c $Configuration -r $Runtime --self-contained $selfContainedFlag | Out-Host
+Write-Host "Publishing $Configuration / $Runtime v$Version (self-contained=$selfContainedFlag)..." -ForegroundColor Cyan
+# -p:Version stamps the version onto the assembly so the running server
+# reports it in its MCP initialize response (see ServerInfo).
+dotnet publish $project -c $Configuration -r $Runtime --self-contained $selfContainedFlag "-p:Version=$Version" | Out-Host
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed (exit $LASTEXITCODE)." }
 
 # Locate the publish folder. The target-framework segment of the path is read
