@@ -5,6 +5,7 @@ using WindowsCommander.McpServer.Mcp;
 using WindowsCommander.Safety.Audit;
 using WindowsCommander.Safety.Policy;
 using WindowsCommander.Windows.Services;
+using WindowsCommander.McpServer;
 
 // High-risk tools are gated behind a local confirmation dialog by default.
 // Setting WINDOWS_COMMANDER_UNATTENDED=1 disables the gate for automated
@@ -76,8 +77,8 @@ while (await input.ReadLineAsync() is { } line)
                 },
                 serverInfo = new
                 {
-                    name = "windows-commander-mcp",
-                    version = "0.1.0"
+                    name = ServerInfo.Name,
+                    version = ServerInfo.Version
                 }
             }),
             "tools/list" => JsonRpcResponse.Success(request.Id, dispatcher.ListTools()),
