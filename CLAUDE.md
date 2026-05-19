@@ -11,10 +11,11 @@ works on the host.
 ## Prerequisites (set up once on the VM)
 
 - Windows 10/11.
-- **.NET 8 SDK** (the projects target `net8.0-windows10.0.19041.0`; WPF +
-  WinForms are used, so the .NET 8 *Desktop* runtime is required — the SDK
+- **.NET 10 SDK** (the projects target `net10.0-windows10.0.19041.0`; WPF +
+  WinForms are used, so the .NET 10 *Desktop* runtime is required — the SDK
   includes it. The Windows 10 SDK version on the TFM unlocks the WinRT APIs,
-  e.g. `Windows.Media.Ocr` for `ocr_screen`).
+  e.g. `Windows.Media.Ocr` for `ocr_screen`). `global.json` pins the build to
+  the SDK 10.x band.
 - **PowerShell 7+** (`pwsh`) — used by the test harness.
 - Claude Code.
 - Clone the repo to a stable path and update `.mcp.json` (see below) if the
@@ -44,7 +45,7 @@ dotnet publish src/WindowsCommander.McpServer/WindowsCommander.McpServer.csproj 
 Published server exe (this is what `.mcp.json` launches):
 
 ```
-src/WindowsCommander.McpServer/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/WindowsCommander.McpServer.exe
+src/WindowsCommander.McpServer/bin/Release/net10.0-windows10.0.19041.0/win-x64/publish/WindowsCommander.McpServer.exe
 ```
 
 ## The connection workflow — important

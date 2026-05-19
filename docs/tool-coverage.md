@@ -107,4 +107,4 @@ This document tracks implementation status against `specs/initial_definition.md`
 - Current MCP tool schemas are minimal object schemas. Rich per-tool JSON schemas should be added as the dispatcher matures.
 - Control indicators use a persistent topmost WPF border overlay window plus the configured audio cue.
 - `ocr_screen` is local-only and uses visible window/UI text metadata; integrating a native OCR engine remains a future enhancement.
-- Current implementation targets Windows interactive desktop use and `.NET 8`.
+- Current implementation targets Windows interactive desktop use and `.NET 10`.

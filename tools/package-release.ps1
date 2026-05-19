@@ -26,7 +26,7 @@
 
 .PARAMETER SelfContained
   Bundle the .NET runtime into the package. Defaults to true. Set to $false
-  for a smaller package that requires the .NET 8 Desktop Runtime on the host.
+  for a smaller package that requires the .NET 10 Desktop Runtime on the host.
 
 .EXAMPLE
   pwsh tools/package-release.ps1 -Version 0.1.0

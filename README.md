@@ -1,6 +1,6 @@
 # Windows Commander MCP
 
-Windows Commander MCP is a Windows-aware `.NET 8` stdio MCP server that exposes process, window, screen, execution, clipboard, environment, file system, and shell automation tools for MCP clients.
+Windows Commander MCP is a Windows-aware `.NET 10` stdio MCP server that exposes process, window, screen, execution, clipboard, environment, file system, and shell automation tools for MCP clients.
 
 ## Status
 
@@ -36,7 +36,7 @@ See `docs/tool-coverage.md` for detailed coverage.
 ## Requirements
 
 - Windows interactive desktop session
-- .NET 8 SDK
+- .NET 10 SDK
 - PowerShell 7+ available as `pwsh.exe` for `execute_powershell`
 
 Some tools require desktop-session access. Elevated target applications may not be controllable from a non-elevated server process.
@@ -117,7 +117,7 @@ dist\windows-commander-mcp-v<version>-win-x64.zip
 ```
 
 Unzip it to a stable folder; `WindowsCommander.McpServer.exe` sits at the root
-of the archive. For a smaller package that requires the .NET 8 Desktop Runtime
+of the archive. For a smaller package that requires the .NET 10 Desktop Runtime
 on the host, pass `-SelfContained $false`.
 
 ## MCP Client Configuration
@@ -165,7 +165,7 @@ dotnet publish src/WindowsCommander.McpServer/WindowsCommander.McpServer.csproj 
 The generated executable is:
 
 ```text
-src\WindowsCommander.McpServer\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\WindowsCommander.McpServer.exe
+src\WindowsCommander.McpServer\bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\WindowsCommander.McpServer.exe
 ```
 
 ## Safety Model

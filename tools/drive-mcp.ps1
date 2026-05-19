@@ -28,7 +28,7 @@
 [CmdletBinding()]
 param(
     [string]$Text = "windows-commander typing test - em-dash there & 'quotes' + symbols (){}[] ~ done.",
-    [string]$ServerExe = "$PSScriptRoot\..\src\WindowsCommander.McpServer\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\WindowsCommander.McpServer.exe",
+    [string]$ServerExe = "$PSScriptRoot\..\src\WindowsCommander.McpServer\bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\WindowsCommander.McpServer.exe",
     [string]$ShotPath = "$PSScriptRoot\..\artifacts\typing-test.png",
     [string]$ShotFullPath = "$PSScriptRoot\..\artifacts\typing-test-full.png"
 )
