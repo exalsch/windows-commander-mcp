@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\WindowsCommander.Core\WindowsCommander.Core.csproj" />
     <ProjectReference Include="..\..\src\WindowsCommander.Safety\WindowsCommander.Safety.csproj" />
     <ProjectReference Include="..\..\src\WindowsCommander.Windows\WindowsCommander.Windows.csproj" />
+    <ProjectReference Include="..\..\src\WindowsCommander.McpServer\WindowsCommander.McpServer.csproj" />
   </ItemGroup>
 
 </Project>
