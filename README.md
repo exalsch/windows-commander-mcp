@@ -1,111 +1,65 @@
 # Windows Commander MCP
 
-Windows Commander MCP is a Windows-aware `.NET 10` stdio MCP server that exposes process, window, screen, execution, clipboard, environment, file system, and shell automation tools for MCP clients.
+Windows Commander MCP is a `.NET 10` stdio MCP server that gives MCP clients
+(Claude Code, Claude Desktop, and other compatible hosts) hands-on control of
+a Windows desktop: windows, input, screen capture, UI Automation, processes,
+registry, services, files, clipboard, and shell.
 
 ## Status
 
-This repository is under active implementation from `specs/initial_definition.md`.
+Stable and ready to use. The server exposes ~57 tools covering the core
+Windows desktop surface, ships pre-built self-contained binaries on the
+[GitHub Releases page](../../releases), and is exercised end-to-end by three
+test harnesses on every change (`tools/smoke-mcp.ps1`, `tools/mutate-mcp.ps1`,
+`tools/drive-mcp.ps1`).
 
-Implemented slices currently include:
+### Capabilities
 
-- MCP JSON-RPC stdio host
-- Process discovery
-- Window discovery/search
-- Screen and system metadata
-- PowerShell/native process execution
-- Text clipboard access
-- Environment variable access
-- File system and shell integration
-- Process/window management
-- Hardware input simulation
-- Screen capture
-- UI Automation tree/action tools
-- Local OCR-style text extraction from UI/window metadata
-- Visual candidate detection from local metadata
-- Display metrics, screen identification, and window/screen mapping
-- Windows notification balloons
-- Windows service discovery
-- Registry reads
-- Installed application discovery and launching
-- In-memory audit logging
-- Risk classification foundation
-- Unit tests for safety and file system behavior
+- **Process & window orchestration** — discovery, search, focus, move/resize,
+  state management, child-window enumeration, foreground-activation that
+  survives the Windows 11 background-activation revert.
+- **Hardware input simulation** — mouse, keyboard, hotkeys, scroll, cursor
+  position, scripted input sequences.
+- **Reliable text entry** — `type_text` uses clipboard paste (preserving all
+  original clipboard formats) instead of `SendInput`, which drops and repeats
+  characters past ~12 events.
+- **Vision** — full-screen, per-monitor, and region screen capture; on-device
+  OCR via `Windows.Media.Ocr` (reads pixels, not just UIA metadata); visual
+  candidate detection.
+- **UI Automation** — tree read with depth/filter controls and a `truncated`
+  flag, find/invoke/set value, element details.
+- **Display & screen metadata** — display metrics, screen identification,
+  window-to-screen mapping, virtual-screen coordinates throughout.
+- **Execution** — PowerShell and native process execution, process control,
+  Windows notifications.
+- **System state** — clipboard (text), environment variables, system info,
+  Windows services, registry reads, installed apps + launching.
+- **File system & shell** — list, read, write, copy/move/delete, file
+  properties with optional SHA256/SHA1/MD5 hashes, open paths, show in
+  Explorer, search files.
+- **Safety layer** — local Win32 confirmation dialog for high-risk tools,
+  per-monitor pulsing border indicator, audio cue, activity-chip queue, and
+  an in-memory audit log with sensitive-argument redaction.
 
-See `docs/tool-coverage.md` for detailed coverage.
+See [`docs/tool-coverage.md`](docs/tool-coverage.md) for the full per-tool
+list.
 
 ## Requirements
 
-- Windows interactive desktop session
-- .NET 10 SDK
-- PowerShell 7+ available as `pwsh.exe` for `execute_powershell`
+- Windows 10/11 interactive desktop session.
+- .NET 10 Desktop Runtime (already bundled with the self-contained release
+  package; only required as a separate install if you build from source or
+  use the non-self-contained package).
+- PowerShell 7+ available as `pwsh.exe` for `execute_powershell`.
 
-Some tools require desktop-session access. Elevated target applications may not be controllable from a non-elevated server process.
-
-## Repository Layout
-
-```text
-src/
-  WindowsCommander.McpServer/   MCP stdio entry point and tool dispatcher
-  WindowsCommander.Core/        Shared models, interfaces, operation and safety contracts
-  WindowsCommander.Windows/     Windows-specific service implementations
-  WindowsCommander.Safety/      Audit log and risk policy foundation
-  WindowsCommander.Vision/      Placeholder project for future capture/OCR/vision features
-tests/
-  WindowsCommander.Tests/       Unit and Windows-local tests
-specs/
-  initial_definition.md         Full target specification
-```
-
-## Build
-
-```powershell
-dotnet build WindowsCommander.slnx
-```
-
-## Test
-
-```powershell
-dotnet test WindowsCommander.slnx
-```
-
-Current test coverage includes:
-
-- Risk classification
-- Audit redaction
-- File write/read/properties round trip
-- Directory listing behavior
-
-## Run Locally
-
-```powershell
-dotnet run --project src/WindowsCommander.McpServer/WindowsCommander.McpServer.csproj
-```
-
-The server communicates over line-delimited JSON-RPC via stdio.
-
-Example initialize request:
-
-```json
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
-```
-
-Example tool list request:
-
-```json
-{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
-```
-
-Example tool call:
-
-```json
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_system_info","arguments":{}}}
-```
+Some tools need an interactive desktop session. Elevated target applications
+may not be controllable from a non-elevated server process.
 
 ## Install (release package)
 
 Each tagged release publishes a ready-to-run, self-contained package on the
-[GitHub Releases page](../../releases) — no .NET runtime or build tools needed
-on the target machine.
+[GitHub Releases page](../../releases) — no .NET runtime or build tools
+needed on the target machine.
 
 1. Download `windows-commander-mcp-v<version>-win-x64.zip` from the latest
    release.
@@ -113,7 +67,7 @@ on the target machine.
    `(Get-FileHash <zip> -Algorithm SHA256).Hash`.
 3. Unzip it to a stable folder, e.g. `C:\Tools\windows-commander-mcp`.
 4. Point your MCP client's `.mcp.json` at the `WindowsCommander.McpServer.exe`
-   at the root of the unzipped folder (see *MCP Client Configuration* below).
+   at the root of the unzipped folder (see [MCP Client Configuration](#mcp-client-configuration)).
 
 Releases are produced automatically: pushing a `v*` git tag runs the
 `.github/workflows/release.yml` workflow, which tests, packages, and publishes
@@ -152,7 +106,7 @@ its full absolute path:
 
 High-risk tools (process kills, file writes/deletes, environment changes,
 script execution) prompt for local confirmation by default. To disable the
-prompt for unattended/automated hosts, add an `env` block:
+prompt for unattended or automated hosts, add an `env` block:
 
 ```json
 {
@@ -166,58 +120,114 @@ prompt for unattended/automated hosts, add an `env` block:
 }
 ```
 
+## Safety Model
+
+The safety layer is implemented and enabled by default.
+
+- **Risk classification** — `RiskPolicyService` marks destructive or
+  command-execution tools as high risk; `ToolDispatcher` consults it on
+  every call.
+- **Confirmation dialog** — high-risk tools (process kills, file writes/
+  deletes, environment changes, script execution) block on a local Win32
+  confirmation dialog until the local user answers; a timeout counts as
+  denied. Set `WINDOWS_COMMANDER_UNATTENDED=1` to bypass for automated hosts.
+- **Visual control indicators** — a per-monitor pulsing border overlay frames
+  every screen during a computer-use action; high-risk actions glow orange
+  with a ⚠ marker. The overlay never activates, so it cannot steal focus.
+  Recent actions render as a labelled chip queue along the glow's top edge.
+- **Audio cue** — short non-intrusive sound on every computer-use call.
+- **Audit log** — every tool invocation is recorded in memory with its risk
+  level; sensitive argument names (`password`, `token`, `secret`, `key`) are
+  redacted.
+
+See [`docs/safety.md`](docs/safety.md).
+
+## Known Limitations
+
+- `clipboard_access` supports the `text` format only; `html`,
+  `file_drop_list`, and `image` are pending.
+- `copy_move_delete_path` supports `copy`, `move`, and permanent `delete`;
+  `recycle` (move to Recycle Bin) is pending.
+- `get_file_properties` returns metadata, version info, and hashes but does
+  not yet include alternate data stream names or a security descriptor
+  summary.
+- The audit log is in-memory only; persistent or exportable history is not
+  yet provided.
+
+## Repository Layout
+
+```text
+src/
+  WindowsCommander.McpServer/   MCP stdio entry point and tool dispatcher
+  WindowsCommander.Core/        Shared models, interfaces, operation and safety contracts
+  WindowsCommander.Windows/     Windows service implementations (P/Invoke, WPF/WinForms)
+  WindowsCommander.Safety/      Risk classification and audit log
+  WindowsCommander.Vision/      Reserved for future vision features
+tests/
+  WindowsCommander.Tests/       xUnit tests
+tools/
+  smoke-mcp.ps1                 35 read-only tool checks
+  mutate-mcp.ps1                Side-effecting tools, self-cleaning
+  drive-mcp.ps1                 End-to-end typing scenario, writes PNGs to artifacts/
+  package-release.ps1           Build the release zip locally
+specs/
+  initial_definition.md         Original target specification
+```
+
 ## Build from source
 
-For development, publish directly instead of packaging:
-
 ```powershell
+dotnet build WindowsCommander.slnx -c Release
+dotnet test  WindowsCommander.slnx -c Release
 dotnet publish src/WindowsCommander.McpServer/WindowsCommander.McpServer.csproj -c Release -r win-x64
 ```
 
-The generated executable is:
+The published executable is:
 
 ```text
 src\WindowsCommander.McpServer\bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\WindowsCommander.McpServer.exe
 ```
 
-## Safety Model
+Note: a running server holds a lock on its own DLLs, so `dotnet publish`
+fails while an MCP client has the server connected. Disconnect the server
+in your MCP client (e.g. `/mcp` in Claude Code) before republishing, or use
+the test harnesses below, which spawn a fresh server process each run.
 
-The project includes a safety foundation but not the full visual/acoustic control layer yet.
+## Test Harnesses
 
-Current behavior:
+Three PowerShell scripts drive the published exe directly over stdio JSON-RPC
+without involving an MCP client. Each spawns its own server and shuts it
+down, so they do not require disconnecting an attached Claude Code session.
 
-- Tool executions are recorded in an in-memory audit log.
-- Sensitive audit argument names such as `password`, `token`, `secret`, and `key` are redacted by default.
-- Risk classification marks destructive or command-execution tools as high risk.
+```powershell
+pwsh tools/smoke-mcp.ps1    # fast: 35 read-only checks, PASS/FAIL matrix
+pwsh tools/mutate-mcp.ps1   # 25 side-effecting checks, self-cleaning
+pwsh tools/drive-mcp.ps1    # end-to-end typing + capture into artifacts/
+```
 
-Planned behavior:
+## Run Locally (raw stdio)
 
-- Configurable confirmation policy enforcement
-- WPF visual control indicators
-- Audio control cues
-- User confirmation dialogs
-- Persistent or exportable audit history
+```powershell
+dotnet run --project src/WindowsCommander.McpServer/WindowsCommander.McpServer.csproj
+```
 
-See `docs/safety.md`.
+The server communicates over line-delimited JSON-RPC via stdio.
 
-## Important Limitations
-
-‼️ Some deep fidelity items remain partial: native OCR engine integration, recycle-bin operations, non-text clipboard formats, scheduled task management, alternate data streams, and security descriptor summaries.
-
-‼️ `clipboard_access` currently supports text format only.
-
-‼️ `copy_move_delete_path` currently supports `copy`, `move`, and permanent `delete`; `recycle` is not implemented yet.
-
-‼️ `get_file_properties` does not yet include alternate data stream names or security descriptor summary.
+```json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_system_info","arguments":{}}}
+```
 
 ## Manual Validation
 
-See `docs/testing.md` for manual test cases with IDs such as `TC1`, `TC2`, and `TC3`.
+See [`docs/testing.md`](docs/testing.md) for manual test cases.
 
 ## Design Goals
 
-- Keep MCP tool handlers thin.
-- Keep Windows-specific APIs behind services.
+- Keep MCP tool handlers thin; keep Windows-specific APIs behind services.
 - Make destructive and computer-control operations observable and auditable.
-- Use Windows virtual-screen coordinates consistently for future UI/input/vision work.
-- Prefer local Windows/.NET-compatible dependencies; no cloud OCR or vision services.
+- Use Windows virtual-screen coordinates consistently for input, capture,
+  and overlays.
+- Prefer local Windows/.NET-compatible dependencies; no cloud OCR or vision
+  services.
