@@ -129,8 +129,9 @@ public sealed class ExecutionService : IExecutionService
                 process.Kill(entireProcessTree: true);
             }
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            Console.Error.WriteLine($"Failed to kill process: {ex.Message}");
         }
     }
 }
