@@ -453,9 +453,82 @@ public sealed class ToolDispatcher
     {
         return name switch
         {
+            "list_processes" => DispatchProcessTool(name, arguments, cancellationToken),
+            "get_process_details" => DispatchProcessTool(name, arguments, cancellationToken),
+            "manage_process" => DispatchProcessTool(name, arguments, cancellationToken),
+            "list_windows" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
+            "find_window" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
+            "focus_window" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
+            "move_resize_window" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
+            "set_window_state" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
+            "wait_for_window" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
+            "enumerate_child_windows" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
+            "mouse_action" => await DispatchInputToolAsync(name, arguments, cancellationToken),
+            "type_text" => await DispatchInputToolAsync(name, arguments, cancellationToken),
+            "send_hotkey" => await DispatchInputToolAsync(name, arguments, cancellationToken),
+            "keyboard_action" => await DispatchInputToolAsync(name, arguments, cancellationToken),
+            "mouse_wheel" => await DispatchInputToolAsync(name, arguments, cancellationToken),
+            "get_cursor_position" => await DispatchInputToolAsync(name, arguments, cancellationToken),
+            "set_cursor_position" => await DispatchInputToolAsync(name, arguments, cancellationToken),
+            "input_sequence" => await DispatchInputToolAsync(name, arguments, cancellationToken),
+            "capture_screen" => await DispatchVisionToolAsync(name, arguments, cancellationToken),
+            "capture_screen_region" => await DispatchVisionToolAsync(name, arguments, cancellationToken),
+            "ocr_screen" => await DispatchVisionToolAsync(name, arguments, cancellationToken),
+            "detect_visual_elements" => await DispatchVisionToolAsync(name, arguments, cancellationToken),
+            "read_ui_tree" => DispatchUiAutomationTool(name, arguments, cancellationToken),
+            "find_ui_element" => DispatchUiAutomationTool(name, arguments, cancellationToken),
+            "invoke_ui_element" => DispatchUiAutomationTool(name, arguments, cancellationToken),
+            "set_ui_value" => DispatchUiAutomationTool(name, arguments, cancellationToken),
+            "get_ui_element_details" => DispatchUiAutomationTool(name, arguments, cancellationToken),
+            "get_screen_details" => DispatchScreenTool(name, arguments, cancellationToken),
+            "get_screen_at_point" => DispatchScreenTool(name, arguments, cancellationToken),
+            "get_display_metrics" => DispatchScreenTool(name, arguments, cancellationToken),
+            "get_window_screen_info" => DispatchScreenTool(name, arguments, cancellationToken),
+            "identify_screens" => DispatchScreenTool(name, arguments, cancellationToken),
+            "show_notification" => DispatchScreenTool(name, arguments, cancellationToken),
+            "get_system_info" => await DispatchSystemToolAsync(name, arguments, cancellationToken),
+            "execute_powershell" => await DispatchSystemToolAsync(name, arguments, cancellationToken),
+            "execute_process" => await DispatchSystemToolAsync(name, arguments, cancellationToken),
+            "clipboard_access" => await DispatchSystemToolAsync(name, arguments, cancellationToken),
+            "get_environment_variable" => await DispatchSystemToolAsync(name, arguments, cancellationToken),
+            "set_environment_variable" => await DispatchSystemToolAsync(name, arguments, cancellationToken),
+            "list_directory" => await DispatchFileSystemToolAsync(name, arguments, cancellationToken),
+            "read_file" => await DispatchFileSystemToolAsync(name, arguments, cancellationToken),
+            "write_file" => await DispatchFileSystemToolAsync(name, arguments, cancellationToken),
+            "copy_move_delete_path" => await DispatchFileSystemToolAsync(name, arguments, cancellationToken),
+            "get_file_properties" => await DispatchFileSystemToolAsync(name, arguments, cancellationToken),
+            "open_path" => await DispatchFileSystemToolAsync(name, arguments, cancellationToken),
+            "show_in_explorer" => await DispatchFileSystemToolAsync(name, arguments, cancellationToken),
+            "search_files" => await DispatchFileSystemToolAsync(name, arguments, cancellationToken),
+            "list_services" => DispatchApplicationTool(name, arguments, cancellationToken),
+            "read_registry" => DispatchApplicationTool(name, arguments, cancellationToken),
+            "list_installed_apps" => DispatchApplicationTool(name, arguments, cancellationToken),
+            "launch_app" => DispatchApplicationTool(name, arguments, cancellationToken),
+            "show_control_indicator" => DispatchControlIndicatorTool(name, arguments, cancellationToken),
+            "hide_control_indicator" => DispatchControlIndicatorTool(name, arguments, cancellationToken),
+            "configure_control_indicators" => DispatchControlIndicatorTool(name, arguments, cancellationToken),
+            "get_control_indicator_status" => DispatchControlIndicatorTool(name, arguments, cancellationToken),
+            "request_user_confirmation" => DispatchControlIndicatorTool(name, arguments, cancellationToken),
+            "get_operation_history" => DispatchAuditTool(name, arguments, cancellationToken),
+            _ => throw new ArgumentException($"Unknown tool: {name}")
+        };
+    }
+
+    private object DispatchProcessTool(string name, JsonElement? arguments, CancellationToken cancellationToken)
+    {
+        return name switch
+        {
             "list_processes" => processService.ListProcesses(GetString(arguments, "filter_name"), GetBool(arguments, "sort_by_memory") ?? false),
             "get_process_details" => processService.GetProcessDetails(GetRequiredInt(arguments, "pid")),
             "manage_process" => processService.ManageProcess(GetRequiredInt(arguments, "pid"), GetRequiredString(arguments, "action")),
+            _ => throw new ArgumentException($"Unknown process tool: {name}")
+        };
+    }
+
+    private async Task<object> DispatchWindowToolAsync(string name, JsonElement? arguments, CancellationToken cancellationToken)
+    {
+        return name switch
+        {
             "list_windows" => windowService.ListWindows(),
             "find_window" => windowService.FindWindows(
                 GetString(arguments, "title_contains"),
@@ -481,6 +554,14 @@ public sealed class ToolDispatcher
                 cancellationToken,
                 GetBool(arguments, "process_name_exact") ?? false),
             "enumerate_child_windows" => windowService.EnumerateChildWindows(GetRequiredLong(arguments, "window_handle")),
+            _ => throw new ArgumentException($"Unknown window tool: {name}")
+        };
+    }
+
+    private async Task<object> DispatchInputToolAsync(string name, JsonElement? arguments, CancellationToken cancellationToken)
+    {
+        return name switch
+        {
             "mouse_action" => inputService.MouseAction(
                 GetRequiredString(arguments, "action"),
                 GetString(arguments, "button"),
@@ -504,6 +585,14 @@ public sealed class ToolDispatcher
             "get_cursor_position" => inputService.GetCursorPosition(),
             "set_cursor_position" => await inputService.SetCursorPositionAsync(GetRequiredInt(arguments, "x"), GetRequiredInt(arguments, "y"), GetInt(arguments, "duration_ms"), cancellationToken),
             "input_sequence" => await inputService.InputSequenceAsync(GetInputSequenceSteps(arguments), GetBool(arguments, "abort_on_error") ?? true, cancellationToken),
+            _ => throw new ArgumentException($"Unknown input tool: {name}")
+        };
+    }
+
+    private async Task<object> DispatchVisionToolAsync(string name, JsonElement? arguments, CancellationToken cancellationToken)
+    {
+        return name switch
+        {
             "capture_screen" => visionService.CaptureScreen(
                 GetRequiredString(arguments, "target"),
                 GetLong(arguments, "hwnd"),
@@ -515,6 +604,20 @@ public sealed class ToolDispatcher
                 GetRequiredInt(arguments, "height"),
                 GetString(arguments, "monitor_id"),
                 GetInt(arguments, "max_dimension")),
+            "ocr_screen" => await visionService.OcrScreenAsync(GetRequiredString(arguments, "target"), GetLong(arguments, "hwnd"), GetRect(arguments, "region")),
+            "detect_visual_elements" => visionService.DetectVisualElements(
+                GetRequiredString(arguments, "target"),
+                GetLong(arguments, "hwnd"),
+                GetRect(arguments, "region"),
+                GetStringArray(arguments, "element_types")),
+            _ => throw new ArgumentException($"Unknown vision tool: {name}")
+        };
+    }
+
+    private object DispatchUiAutomationTool(string name, JsonElement? arguments, CancellationToken cancellationToken)
+    {
+        return name switch
+        {
             "read_ui_tree" => uiAutomationService.ReadUiTree(
                 GetRequiredLong(arguments, "hwnd"),
                 GetInt(arguments, "max_depth") ?? 5,
@@ -531,14 +634,31 @@ public sealed class ToolDispatcher
             "invoke_ui_element" => uiAutomationService.InvokeUiElement(GetRequiredString(arguments, "element_ref"), GetRequiredString(arguments, "action")),
             "set_ui_value" => uiAutomationService.SetUiValue(GetRequiredString(arguments, "element_ref"), GetRequiredString(arguments, "value")),
             "get_ui_element_details" => uiAutomationService.GetUiElementDetails(GetRequiredString(arguments, "element_ref")),
-            "ocr_screen" => await visionService.OcrScreenAsync(GetRequiredString(arguments, "target"), GetLong(arguments, "hwnd"), GetRect(arguments, "region")),
-            "detect_visual_elements" => visionService.DetectVisualElements(
-                GetRequiredString(arguments, "target"),
-                GetLong(arguments, "hwnd"),
-                GetRect(arguments, "region"),
-                GetStringArray(arguments, "element_types")),
+            _ => throw new ArgumentException($"Unknown uiautomation tool: {name}")
+        };
+    }
+
+    private object DispatchScreenTool(string name, JsonElement? arguments, CancellationToken cancellationToken)
+    {
+        return name switch
+        {
             "get_screen_details" => screenService.GetScreenDetails(),
             "get_screen_at_point" => screenService.GetScreenAtPoint(GetRequiredInt(arguments, "x"), GetRequiredInt(arguments, "y")),
+            "get_display_metrics" => screenService.GetDisplayMetrics(),
+            "get_window_screen_info" => screenService.GetWindowScreenInfo(GetRequiredLong(arguments, "window_handle")),
+            "identify_screens" => screenService.GetScreenDetails(),
+            "show_notification" => screenService.ShowNotification(
+                GetRequiredString(arguments, "title"),
+                GetRequiredString(arguments, "message"),
+                GetInt(arguments, "timeout_ms")),
+            _ => throw new ArgumentException($"Unknown screen tool: {name}")
+        };
+    }
+
+    private async Task<object> DispatchSystemToolAsync(string name, JsonElement? arguments, CancellationToken cancellationToken)
+    {
+        return name switch
+        {
             "get_system_info" => systemInfoService.GetSystemInfo(),
             "execute_powershell" => await executionService.ExecutePowerShellAsync(
                 GetRequiredString(arguments, "command"),
@@ -564,6 +684,14 @@ public sealed class ToolDispatcher
                     GetRequiredString(arguments, "scope"))
             },
             "set_environment_variable" => SetEnvironmentVariable(arguments),
+            _ => throw new ArgumentException($"Unknown system tool: {name}")
+        };
+    }
+
+    private async Task<object> DispatchFileSystemToolAsync(string name, JsonElement? arguments, CancellationToken cancellationToken)
+    {
+        return name switch
+        {
             "list_directory" => fileSystemService.ListDirectory(
                 GetRequiredString(arguments, "path"),
                 GetBool(arguments, "recursive") ?? false,
@@ -601,13 +729,14 @@ public sealed class ToolDispatcher
                 GetString(arguments, "content_query"),
                 GetBool(arguments, "include_hidden") ?? false,
                 GetInt(arguments, "max_results")),
-            "get_display_metrics" => screenService.GetDisplayMetrics(),
-            "get_window_screen_info" => screenService.GetWindowScreenInfo(GetRequiredLong(arguments, "window_handle")),
-            "identify_screens" => screenService.GetScreenDetails(),
-            "show_notification" => screenService.ShowNotification(
-                GetRequiredString(arguments, "title"),
-                GetRequiredString(arguments, "message"),
-                GetInt(arguments, "timeout_ms")),
+            _ => throw new ArgumentException($"Unknown filesystem tool: {name}")
+        };
+    }
+
+    private object DispatchApplicationTool(string name, JsonElement? arguments, CancellationToken cancellationToken)
+    {
+        return name switch
+        {
             "list_services" => windowsServiceDiscoveryService.ListServices(
                 GetString(arguments, "name_filter"),
                 GetString(arguments, "status_filter")),
@@ -623,6 +752,14 @@ public sealed class ToolDispatcher
                 GetRequiredString(arguments, "identifier"),
                 GetRequiredString(arguments, "identifier_type"),
                 GetStringArray(arguments, "arguments")),
+            _ => throw new ArgumentException($"Unknown application tool: {name}")
+        };
+    }
+
+    private object DispatchControlIndicatorTool(string name, JsonElement? arguments, CancellationToken cancellationToken)
+    {
+        return name switch
+        {
             "show_control_indicator" => controlIndicatorService.ShowControlIndicator(
                 GetRequiredString(arguments, "message"),
                 GetRect(arguments, "bounds")),
@@ -634,8 +771,16 @@ public sealed class ToolDispatcher
                 GetRequiredString(arguments, "message"),
                 GetRequiredString(arguments, "risk_level"),
                 GetInt(arguments, "timeout_ms")),
+            _ => throw new ArgumentException($"Unknown controlindicator tool: {name}")
+        };
+    }
+
+    private object DispatchAuditTool(string name, JsonElement? arguments, CancellationToken cancellationToken)
+    {
+        return name switch
+        {
             "get_operation_history" => auditLog.GetRecent(GetInt(arguments, "limit") ?? 50, GetBool(arguments, "include_sensitive_arguments") ?? false),
-            _ => throw new ArgumentException($"Unknown tool: {name}")
+            _ => throw new ArgumentException($"Unknown audit tool: {name}")
         };
     }
 
