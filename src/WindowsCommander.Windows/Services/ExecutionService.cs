@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using WindowsCommander.Core.Models;
 using WindowsCommander.Core.Services;
@@ -131,7 +132,15 @@ public sealed class ExecutionService : IExecutionService
         }
         catch (InvalidOperationException ex)
         {
-            Console.Error.WriteLine($"Failed to kill process: {ex.Message}");
+            Console.Error.WriteLine($"Failed to kill process: {ex}");
+        }
+        catch (Win32Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to kill process: {ex}");
+        }
+        catch (NotSupportedException ex)
+        {
+            Console.Error.WriteLine($"Failed to kill process: {ex}");
         }
     }
 }
