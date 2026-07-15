@@ -36,6 +36,8 @@ public sealed class WindowService : IWindowService
         const int swShow = 5;
         const uint spiGetForegroundLockTimeout = 0x2000;
         const uint spiSetForegroundLockTimeout = 0x2001;
+        const int maxActivationAttempts = 5;
+        const int activationRetryDelayMs = 40;
 
         // A minimized window cannot receive focus until it is restored.
         if (NativeMethods.IsIconic(handle))
@@ -79,7 +81,7 @@ public sealed class WindowService : IWindowService
         {
             // A few attempts: the activation occasionally needs the window
             // manager a moment to settle before it takes.
-            for (var attempt = 0; attempt < 5; attempt++)
+            for (var attempt = 0; attempt < maxActivationAttempts; attempt++)
             {
                 NativeMethods.BringWindowToTop(handle);
                 NativeMethods.ShowWindow(handle, swShow);
@@ -90,7 +92,7 @@ public sealed class WindowService : IWindowService
                     return true;
                 }
 
-                System.Threading.Thread.Sleep(40);
+                System.Threading.Thread.Sleep(activationRetryDelayMs);
             }
 
             return NativeMethods.GetForegroundWindow() == handle;
