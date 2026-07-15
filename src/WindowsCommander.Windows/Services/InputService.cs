@@ -1,4 +1,5 @@
 using System.Windows.Forms;
+using System.Windows.Threading;
 using WindowsCommander.Core.Models;
 using WindowsCommander.Core.Services;
 using WindowsCommander.Windows.Native;
@@ -47,12 +48,12 @@ public sealed class InputService : IInputService
         }
     }
 
-    public Task<InputActionResult> TypeTextAsync(string text, int? speedMs, CancellationToken cancellationToken)
+    public async Task<InputActionResult> TypeTextAsync(string text, int? speedMs, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(text);
         if (text.Length == 0)
         {
-            return Task.FromResult(new InputActionResult("type_text", Completed: true, 0));
+            return new InputActionResult("type_text", Completed: true, 0);
         }
 
         // Synthetic keystroke injection (SendInput / keybd_event) is unreliable
@@ -61,13 +62,13 @@ public sealed class InputService : IInputService
         // clipboard hands the target the whole string in one atomic operation,
         // so it always lands intact regardless of length or Unicode content.
         // The caller's clipboard text is saved and restored around the paste.
-        PasteText(text);
-        return Task.FromResult(new InputActionResult("type_text", Completed: true, text.Length));
+        await PasteTextAsync(text, cancellationToken);
+        return new InputActionResult("type_text", Completed: true, text.Length);
     }
 
-    private void PasteText(string text)
+    private Task PasteTextAsync(string text, CancellationToken cancellationToken)
     {
-        RunOnStaThread(() =>
+        return RunOnStaThreadAsync(async () =>
         {
             var restoreClipboard = CaptureClipboard();
             try
@@ -79,14 +80,12 @@ public sealed class InputService : IInputService
                 // the Ctrl+V. Restoring the previous contents too soon wins the
                 // race and the target pastes nothing, so wait long enough for
                 // even a busy app to have consumed the paste.
-                Thread.Sleep(400);
+                await Task.Delay(400, cancellationToken);
             }
             finally
             {
                 restoreClipboard();
             }
-
-            return true;
         });
     }
 
@@ -167,6 +166,39 @@ public sealed class InputService : IInputService
         }
 
         return result!;
+    }
+
+    private static Task RunOnStaThreadAsync(Func<Task> action)
+    {
+        var tcs = new TaskCompletionSource();
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var dispatcher = Dispatcher.CurrentDispatcher;
+                SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
+
+                action().ContinueWith(t =>
+                {
+                    if (t.IsFaulted) tcs.TrySetException(t.Exception!.InnerExceptions);
+                    else if (t.IsCanceled) tcs.TrySetCanceled();
+                    else tcs.TrySetResult();
+
+                    dispatcher.InvokeShutdown();
+                });
+
+                Dispatcher.Run();
+            }
+            catch (Exception exception)
+            {
+                tcs.TrySetException(exception);
+            }
+        });
+
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+
+        return tcs.Task;
     }
 
     public InputActionResult SendHotkey(IReadOnlyList<string> modifiers, string key)
