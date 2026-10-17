@@ -23,6 +23,12 @@ public sealed class WindowService : IWindowService
             .ToArray();
     }
 
+    public WindowDetails? GetForegroundWindow()
+    {
+        var hwnd = NativeMethods.GetForegroundWindow();
+        return hwnd == nint.Zero ? null : DescribeWindow(hwnd);
+    }
+
     public WindowActionResult FocusWindow(long windowHandle)
     {
         var handle = new IntPtr(windowHandle);
@@ -203,21 +209,25 @@ public sealed class WindowService : IWindowService
         var windows = new List<WindowDetails>();
         NativeMethods.EnumChildWindows(new IntPtr(windowHandle), (hwnd, _) =>
         {
-            NativeMethods.GetWindowThreadProcessId(hwnd, out var processId);
-            windows.Add(new WindowDetails(
-                hwnd,
-                GetWindowText(hwnd),
-                GetClassName(hwnd),
-                (int)processId,
-                GetProcessName((int)processId),
-                NativeMethods.IsWindowVisible(hwnd),
-                NativeMethods.IsIconic(hwnd),
-                GetWindowBounds(hwnd)));
-
+            windows.Add(DescribeWindow(hwnd));
             return true;
         }, nint.Zero);
 
         return windows;
+    }
+
+    internal static WindowDetails DescribeWindow(nint hwnd)
+    {
+        NativeMethods.GetWindowThreadProcessId(hwnd, out var processId);
+        return new WindowDetails(
+            hwnd,
+            GetWindowText(hwnd),
+            GetClassName(hwnd),
+            (int)processId,
+            GetProcessName((int)processId),
+            NativeMethods.IsWindowVisible(hwnd),
+            NativeMethods.IsIconic(hwnd),
+            GetWindowBounds(hwnd));
     }
 
     internal static IReadOnlyList<WindowDetails> EnumerateWindows(bool visibleOnly)

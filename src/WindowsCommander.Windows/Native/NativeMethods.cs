@@ -39,6 +39,10 @@ internal static partial class NativeMethods
     [DllImport("user32.dll")]
     internal static extern nint GetForegroundWindow();
 
+    // gaFlags: GA_PARENT = 1, GA_ROOT = 2, GA_ROOTOWNER = 3.
+    [DllImport("user32.dll")]
+    internal static extern nint GetAncestor(nint hwnd, uint gaFlags);
+
     [DllImport("user32.dll")]
     internal static extern bool BringWindowToTop(nint hWnd);
 

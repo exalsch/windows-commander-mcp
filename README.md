@@ -7,7 +7,7 @@ registry, services, files, clipboard, and shell.
 
 ## Status
 
-Stable and ready to use. The server exposes ~57 tools covering the core
+Stable and ready to use. The server exposes ~60 tools covering the core
 Windows desktop surface, ships pre-built self-contained binaries on the
 [GitHub Releases page](../../releases), and is exercised end-to-end by three
 test harnesses on every change (`tools/smoke-mcp.ps1`, `tools/mutate-mcp.ps1`,
@@ -17,7 +17,8 @@ test harnesses on every change (`tools/smoke-mcp.ps1`, `tools/mutate-mcp.ps1`,
 
 - **Process & window orchestration** — discovery, search, focus, move/resize,
   state management, child-window enumeration, foreground-activation that
-  survives the Windows 11 background-activation revert.
+  survives the Windows 11 background-activation revert, and a
+  `get_foreground_window` query for the window that currently has focus.
 - **Hardware input simulation** — mouse, keyboard, hotkeys, scroll, cursor
   position, scripted input sequences.
 - **Reliable text entry** — `type_text` uses clipboard paste (preserving all
@@ -27,7 +28,8 @@ test harnesses on every change (`tools/smoke-mcp.ps1`, `tools/mutate-mcp.ps1`,
   OCR via `Windows.Media.Ocr` (reads pixels, not just UIA metadata); visual
   candidate detection.
 - **UI Automation** — tree read with depth/filter controls and a `truncated`
-  flag, find/invoke/set value, element details.
+  flag, find/invoke/set value, element details, and the element that
+  currently has keyboard focus (`get_focused_ui_element`).
 - **Display & screen metadata** — display metrics, screen identification,
   window-to-screen mapping, virtual-screen coordinates throughout.
 - **Execution** — PowerShell and native process execution, process control,
@@ -37,6 +39,9 @@ test harnesses on every change (`tools/smoke-mcp.ps1`, `tools/mutate-mcp.ps1`,
 - **File system & shell** — list, read, write, copy/move/delete, file
   properties with optional SHA256/SHA1/MD5 hashes, open paths, show in
   Explorer, search files.
+- **Asking the user** - `ask_user` shows a topmost dialog with custom
+  buttons and an optional text field and returns the answer; it closes
+  itself on timeout.
 - **Safety layer** — local Win32 confirmation dialog for high-risk tools,
   per-monitor pulsing border indicator, audio cue, activity-chip queue, and
   an in-memory audit log with sensitive-argument redaction.

@@ -17,6 +17,10 @@ public interface IWindowService
 
     IReadOnlyList<WindowDetails> FindWindows(string? titleContains, string? className, string? processName, int? pid, bool visibleOnly, bool processNameExact = false);
 
+    // The window that currently has the foreground (receives keyboard input),
+    // or null when no window is in the foreground (e.g. the desktop is locked).
+    WindowDetails? GetForegroundWindow();
+
     WindowActionResult FocusWindow(long windowHandle);
 
     // Raises a window to the top of the Z order so its pixels are no longer
@@ -197,6 +201,10 @@ public interface IUiAutomationService
     UiActionResult SetUiValue(string elementRef, string value);
 
     UiElementDetails GetUiElementDetails(string elementRef);
+
+    // The element that currently has keyboard focus, system-wide. Its
+    // ElementRef can be passed to invoke_ui_element / set_ui_value.
+    FocusedUiElementInfo GetFocusedUiElement();
 }
 
 public interface IControlIndicatorService
@@ -222,4 +230,14 @@ public interface IControlIndicatorService
     void SignalActivity(string message, bool elevated, RectBounds? bounds = null);
 
     ConfirmationResult RequestUserConfirmation(string title, string message, string riskLevel, int? timeoutMs);
+
+    /// <summary>
+    /// Asks the local user a question in a topmost dialog and blocks until
+    /// they answer, cancel, or <paramref name="timeoutMs"/> elapses (the
+    /// dialog is closed on timeout). <paramref name="options"/> become one
+    /// button each; with none, a single OK button is shown.
+    /// <paramref name="allowTextInput"/> adds a text field whose content is
+    /// returned with the clicked button.
+    /// </summary>
+    UserPromptResult AskUser(string title, string message, IReadOnlyList<string>? options, bool allowTextInput, string? defaultText, int? timeoutMs);
 }

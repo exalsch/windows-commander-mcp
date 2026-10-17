@@ -11,6 +11,7 @@ This document tracks implementation status against `specs/initial_definition.md`
 - `manage_process`
 - `list_windows`
 - `find_window`
+- `get_foreground_window`
 - `focus_window`
 - `move_resize_window`
 - `set_window_state`
@@ -37,6 +38,7 @@ This document tracks implementation status against `specs/initial_definition.md`
 - `invoke_ui_element`
 - `set_ui_value`
 - `get_ui_element_details`
+- `get_focused_ui_element`
 - `ocr_screen` via local UI/window visible text extraction
 - `detect_visual_elements` via local window/UI metadata candidates
 
@@ -84,6 +86,7 @@ This document tracks implementation status against `specs/initial_definition.md`
 - `configure_control_indicators`
 - `get_control_indicator_status`
 - `request_user_confirmation`
+- `ask_user`
 - Risk classification service
 - In-memory audit log
 - Sensitive argument redaction

@@ -157,6 +157,8 @@ try {
     Test-Tool $proc 'list_windows'   @{}                                                                     | Out-Null
     Test-Tool $proc 'find_window'    @{ class_name = 'Notepad'; visible_only = $false }                       | Out-Null
     Test-Tool $proc 'get_cursor_position' @{}                                                                | Out-Null
+    Test-Tool $proc 'get_foreground_window' @{}                                                              | Out-Null
+    Test-Tool $proc 'get_focused_ui_element' @{} { param($p) $p -and $p.element.elementRef }                 | Out-Null
     if ($npPid) {
         Test-Tool $proc 'get_process_details' @{ pid = [int]$npPid }                                         | Out-Null
     }

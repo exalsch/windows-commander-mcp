@@ -111,6 +111,7 @@ public sealed class ToolDispatcher
                     Bool("process_name_exact", "Match process_name as a whole, case-insensitively, instead of a substring (default false). Set true to avoid e.g. 'notepad' also matching 'notepad++'."),
                     Int("pid", "Owning process id to match."),
                     Bool("visible_only", "Restrict results to visible windows when true.")),
+                Tool("get_foreground_window", "Returns the window that currently has the foreground (the one receiving keyboard input): handle, title, class, process and bounds. Returns null when no window is in the foreground. Use get_focused_ui_element for the exact control inside it."),
                 Tool("focus_window", "Brings a window to the foreground.",
                     Int("window_handle", "Native window handle (HWND) to focus.", required: true)),
                 Tool("move_resize_window", "Moves and resizes a window.",
@@ -200,6 +201,7 @@ public sealed class ToolDispatcher
                     Str("value", "New value to set.", required: true)),
                 Tool("get_ui_element_details", "Gets detailed UI Automation element information.",
                     Str("element_ref", "Element reference to inspect.", required: true)),
+                Tool("get_focused_ui_element", "Returns the UI Automation element that currently has keyboard focus, system-wide, with its element_ref (usable with invoke_ui_element / set_ui_value), owning process, and top-level window handle and title. Check this before type_text to confirm where the text will land."),
                 Tool("ocr_screen", "Extracts local visible text metadata from a screen/window region.",
                     Str("target", "What to read: 'full_screen', 'active_window', or a numeric window handle.", required: true),
                     Int("hwnd", "Explicit window handle to read."),
@@ -314,6 +316,13 @@ public sealed class ToolDispatcher
                     Str("message", "Confirmation prompt shown to the user.", required: true),
                     Str("risk_level", "Risk level of the pending operation.", true, "low", "medium", "high"),
                     Int("timeout_ms", "How long to wait for a response in milliseconds.")),
+                Tool("ask_user", "Asks the local user a question in a topmost dialog and waits for the answer. Use it for decisions only the user can make. Offer choices as options (one button each), and/or set allow_text_input for a free-text answer. Returns decision ('answered', 'cancelled' or 'timeout'), the clicked choice, and the typed text. The dialog closes itself on timeout.",
+                    Str("title", "Dialog title.", required: true),
+                    Str("message", "The question shown to the user.", required: true),
+                    StrArray("options", "Button labels, one per choice, at most 6, e.g. [\"Yes\", \"No\", \"Later\"]. The first is the default (Enter). Omit for a single OK button."),
+                    Bool("allow_text_input", "Show a text field and return what the user typed (default false)."),
+                    Str("default_text", "Initial content of the text field."),
+                    Int("timeout_ms", "How long to wait for an answer in milliseconds, clamped to 1000..600000 (default 120000).")),
                 Tool("get_operation_history", "Returns a bounded audit log of recent tool executions.",
                     Int("limit", "Maximum number of audit entries to return (default 50)."),
                     Bool("include_sensitive_arguments", "Include raw tool arguments in the output when true."))
@@ -531,6 +540,7 @@ public sealed class ToolDispatcher
             "manage_process" => DispatchProcessTool(name, arguments, cancellationToken),
             "list_windows" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
             "find_window" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
+            "get_foreground_window" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
             "focus_window" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
             "move_resize_window" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
             "set_window_state" => await DispatchWindowToolAsync(name, arguments, cancellationToken),
@@ -553,6 +563,7 @@ public sealed class ToolDispatcher
             "invoke_ui_element" => DispatchUiAutomationTool(name, arguments, cancellationToken),
             "set_ui_value" => DispatchUiAutomationTool(name, arguments, cancellationToken),
             "get_ui_element_details" => DispatchUiAutomationTool(name, arguments, cancellationToken),
+            "get_focused_ui_element" => DispatchUiAutomationTool(name, arguments, cancellationToken),
             "get_screen_details" => DispatchScreenTool(name, arguments, cancellationToken),
             "get_screen_at_point" => DispatchScreenTool(name, arguments, cancellationToken),
             "get_display_metrics" => DispatchScreenTool(name, arguments, cancellationToken),
@@ -582,6 +593,7 @@ public sealed class ToolDispatcher
             "configure_control_indicators" => DispatchControlIndicatorTool(name, arguments, cancellationToken),
             "get_control_indicator_status" => DispatchControlIndicatorTool(name, arguments, cancellationToken),
             "request_user_confirmation" => DispatchControlIndicatorTool(name, arguments, cancellationToken),
+            "ask_user" => DispatchControlIndicatorTool(name, arguments, cancellationToken),
             "get_operation_history" => DispatchAuditTool(name, arguments, cancellationToken),
             _ => throw new ArgumentException($"Unknown tool: {name}")
         };
@@ -610,6 +622,7 @@ public sealed class ToolDispatcher
                 GetInt(arguments, "pid"),
                 GetBool(arguments, "visible_only") ?? false,
                 GetBool(arguments, "process_name_exact") ?? false),
+            "get_foreground_window" => windowService.GetForegroundWindow() ?? (object)new { window = (object?)null },
             "focus_window" => windowService.FocusWindow(GetRequiredLong(arguments, "window_handle")),
             "move_resize_window" => windowService.MoveResizeWindow(
                 GetRequiredLong(arguments, "window_handle"),
@@ -707,6 +720,7 @@ public sealed class ToolDispatcher
             "invoke_ui_element" => uiAutomationService.InvokeUiElement(GetRequiredString(arguments, "element_ref"), GetRequiredString(arguments, "action")),
             "set_ui_value" => uiAutomationService.SetUiValue(GetRequiredString(arguments, "element_ref"), GetRequiredString(arguments, "value")),
             "get_ui_element_details" => uiAutomationService.GetUiElementDetails(GetRequiredString(arguments, "element_ref")),
+            "get_focused_ui_element" => uiAutomationService.GetFocusedUiElement(),
             _ => throw new ArgumentException($"Unknown uiautomation tool: {name}")
         };
     }
@@ -843,6 +857,13 @@ public sealed class ToolDispatcher
                 GetRequiredString(arguments, "title"),
                 GetRequiredString(arguments, "message"),
                 GetRequiredString(arguments, "risk_level"),
+                GetInt(arguments, "timeout_ms")),
+            "ask_user" => controlIndicatorService.AskUser(
+                GetRequiredString(arguments, "title"),
+                GetRequiredString(arguments, "message"),
+                GetStringArray(arguments, "options"),
+                GetBool(arguments, "allow_text_input") ?? false,
+                GetString(arguments, "default_text"),
                 GetInt(arguments, "timeout_ms")),
             _ => throw new ArgumentException($"Unknown controlindicator tool: {name}")
         };

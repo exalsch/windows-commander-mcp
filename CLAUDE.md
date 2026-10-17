@@ -31,7 +31,7 @@ works on the host.
 | `WindowsCommander.Safety` | Risk classification (`RiskPolicyService`) |
 | `WindowsCommander.Vision` | Screen capture, OCR, visual detection |
 | `WindowsCommander.Windows` | Windows service implementations (P/Invoke, WPF/WinForms) |
-| `WindowsCommander.McpServer` | The stdio JSON-RPC MCP server; `ToolDispatcher` maps ~57 tools |
+| `WindowsCommander.McpServer` | The stdio JSON-RPC MCP server; `ToolDispatcher` maps ~60 tools |
 | `tests/WindowsCommander.Tests` | xUnit tests |
 
 ## Build, test, publish
@@ -131,7 +131,7 @@ match, so `process_name: "Notepad"` also matches `notepad++`.
 ## Status — done this far
 
 - MCP protocol correctness, UTF-8 streams, `IntPtr` converter.
-- Full JSON input schemas for all ~57 tools.
+- Full JSON input schemas for all ~60 tools.
 - `capture_screen` returns an MCP `image` content type, downscaled.
 - `focus_window` robust foreground activation (verified).
 - `type_text` via clipboard paste, all-formats clipboard preservation (verified).
@@ -223,6 +223,24 @@ covered by `smoke-mcp.ps1`'s "agent-efficiency features" section:
   targets or `active_window` (already foreground); `TryResolveCaptureWindowHandle`
   returns null for those. Pass `bring_to_front: false` to read a background
   window without disturbing z-order. `mutate-mcp.ps1` covers both paths.
+
+## Focus and user prompts
+
+- `get_foreground_window`: the window that currently receives keyboard input
+  (`GetForegroundWindow`), as a `WindowDetails`; `{ "window": null }` when
+  there is none. While the session is locked it reports `LockApp`'s
+  "Windows Default Lock Screen" window.
+- `get_focused_ui_element`: UIA `AutomationElement.FocusedElement` with an
+  `element_ref`, its process, and the top-level window (nearest ancestor with
+  an HWND, then `GetAncestor(GA_ROOT)`). Use it before `type_text` to check
+  where the text lands.
+- `ask_user`: a WinForms dialog (`UserPromptForm`) with up to 6 option buttons
+  and an optional text field. Returns `decision` (`answered` / `cancelled` /
+  `timeout`), `choice` and `text`. Unlike `request_user_confirmation` (a
+  `MessageBox` that stays open after its timeout), the form closes itself when
+  the timeout elapses. Not risk-gated. `mutate-mcp.ps1` covers the timeout
+  path (and checks the dialog is gone) and the answered path, where a second
+  server instance types into the field and clicks a button via UIA.
 
 ## Conventions
 

@@ -251,6 +251,50 @@ public sealed class ControlIndicatorService : IControlIndicatorService
         return new ConfirmationResult(title, message, riskLevel, decision, DateTimeOffset.UtcNow);
     }
 
+    private const int MaxPromptOptions = 6;
+
+    public UserPromptResult AskUser(string title, string message, IReadOnlyList<string>? options, bool allowTextInput, string? defaultText, int? timeoutMs)
+    {
+        var buttons = options is { Count: > 0 } ? options : new[] { "OK" };
+        if (buttons.Count > MaxPromptOptions)
+        {
+            throw new ArgumentException($"ask_user supports at most {MaxPromptOptions} options.");
+        }
+
+        if (buttons.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException("ask_user options must not be empty.");
+        }
+
+        var timeout = Math.Clamp(timeoutMs ?? 120000, 1000, 600000);
+        string decision = "timeout";
+        string? choice = null;
+        string? text = null;
+
+        // The form owns its timeout and closes itself, so ShowDialog always
+        // returns; the Join below only guards against a wedged message loop.
+        var thread = new Thread(() =>
+        {
+            using var form = new UserPromptForm(title, message, buttons, allowTextInput, defaultText, timeout);
+            form.ShowDialog();
+            decision = form.Decision;
+            choice = form.Choice;
+            text = form.EnteredText;
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.IsBackground = true;
+        thread.Start();
+
+        if (!thread.Join(timeout + 5000))
+        {
+            decision = "timeout";
+            choice = null;
+            text = null;
+        }
+
+        return new UserPromptResult(title, message, decision, choice, text, DateTimeOffset.UtcNow);
+    }
+
     // Resolves which rectangles to glow. An explicit bounds is framed as a
     // single rectangle (the captured screen, or the captured window's border);
     // a null bounds falls back to framing every screen individually so each

@@ -141,6 +141,9 @@ try {
     Test-Tool $proc 'move_resize_window' @{ window_handle = $hwnd; x = 120; y = 120; width = 900; height = 620 } `
         { param($p) $p.bounds.width -eq 900 -and $p.bounds.height -eq 620 } | Out-Null
     Test-Tool $proc 'focus_window' @{ window_handle = $hwnd } -Label 're-focus' { param($p) $p.completed } | Out-Null
+    # get_foreground_window must report the window focus_window just activated.
+    Test-Tool $proc 'get_foreground_window' @{} -Label 'is target' `
+        { param($p) $p.hwnd -eq $hwnd -and $p.className -eq 'Notepad' } | Out-Null
 
     Write-Host "--- capture bring-to-front ---------------------------------" -ForegroundColor Yellow
 
@@ -217,6 +220,10 @@ try {
     if ($docRef) {
         Test-Tool $proc 'invoke_ui_element' @{ element_ref = $docRef; action = 'focus' } `
             { param($p) $p.completed } | Out-Null
+        # The focused element must be Notepad's editing surface, hosted in the
+        # target window.
+        Test-Tool $proc 'get_focused_ui_element' @{} -Label 'is document' `
+            { param($p) $p.topLevelWindowHandle -eq $hwnd -and $p.processId -eq $npPid -and $p.element.controlType -eq 'Document' } | Out-Null
         # Notepad's editing surface is a RichEdit 'Document'; it may or may not
         # expose ValuePattern. A genuine "does not support ValuePattern" error
         # is a real result, not a harness bug -- it shows in the matrix.
@@ -225,6 +232,56 @@ try {
     } else {
         Write-Host "  invoke_ui_element / set_ui_value  SKIP no Document element found" -ForegroundColor DarkGray
     }
+
+    Write-Host "--- ask_user -----------------------------------------------" -ForegroundColor Yellow
+    # Timeout path: nobody answers, so the result is 'timeout' AND the dialog
+    # must be gone afterwards (request_user_confirmation leaves its MessageBox
+    # open on timeout; ask_user must not).
+    $askTitle = "wc-mutate-ask-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+    Test-Tool $proc 'ask_user' @{ title = $askTitle; message = 'mutate-mcp: no answer expected'; options = @('Alpha', 'Beta'); timeout_ms = 1500 } `
+        -Label 'timeout' { param($p) $p.decision -eq 'timeout' -and $null -eq $p.choice } | Out-Null
+    Start-Sleep -Milliseconds 300
+    Test-Tool $proc 'find_window' @{ title_contains = $askTitle; visible_only = $true } -Label 'dialog closed' `
+        { param($p, $t) $t.Trim() -eq '[]' } | Out-Null
+
+    # Answer path: the main server blocks inside ask_user, so a second server
+    # instance plays the user -- it types into the text field and clicks 'Beta'
+    # via UI Automation, then the main server's reply is read.
+    $answerTitle = "wc-mutate-ask-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+    $script:nextId++
+    $askReq = @{ jsonrpc = '2.0'; id = $script:nextId; method = 'tools/call'; params = @{
+        name = 'ask_user'; arguments = @{ title = $answerTitle; message = 'mutate-mcp: answered by UI Automation'; options = @('Alpha', 'Beta'); allow_text_input = $true; timeout_ms = 20000 } } }
+    $proc.StandardInput.WriteLine(($askReq | ConvertTo-Json -Depth 20 -Compress))
+    $proc.StandardInput.Flush()
+    $helper = Start-Server -Exe $ServerExe
+    try {
+        Invoke-Rpc -Proc $helper -Method 'initialize' -Params @{
+            protocolVersion = '2024-11-05'; capabilities = @{}; clientInfo = @{ name = 'mutate-mcp-helper'; version = '1.0' }
+        } | Out-Null
+        Send-Notification -Proc $helper -Method 'notifications/initialized'
+        $dw = Invoke-Rpc -Proc $helper -Method 'tools/call' -Params @{ name = 'wait_for_window'; arguments = @{ title_contains = $answerTitle; timeout_ms = 10000 } }
+        $dialogHwnd = ((Get-Txt $dw) | ConvertFrom-Json).hwnd
+        $edit = Invoke-Rpc -Proc $helper -Method 'tools/call' -Params @{ name = 'find_ui_element'; arguments = @{ hwnd = $dialogHwnd; control_type = 'Edit' } }
+        $editRef = ((Get-Txt $edit) | ConvertFrom-Json | Select-Object -First 1).elementRef
+        Invoke-Rpc -Proc $helper -Method 'tools/call' -Params @{ name = 'set_ui_value'; arguments = @{ element_ref = $editRef; value = 'typed answer' } } | Out-Null
+        $btn = Invoke-Rpc -Proc $helper -Method 'tools/call' -Params @{ name = 'find_ui_element'; arguments = @{ hwnd = $dialogHwnd; control_type = 'Button'; name_contains = 'Beta' } }
+        $btnRef = ((Get-Txt $btn) | ConvertFrom-Json | Select-Object -First 1).elementRef
+        Invoke-Rpc -Proc $helper -Method 'tools/call' -Params @{ name = 'invoke_ui_element'; arguments = @{ element_ref = $btnRef; action = 'invoke' } } | Out-Null
+    }
+    finally {
+        if (-not $helper.HasExited) {
+            $helper.StandardInput.Close()
+            if (-not $helper.WaitForExit(3000)) { $helper.Kill() }
+        }
+    }
+    $askLine = $proc.StandardOutput.ReadLine()
+    $askOk = $false; $askDetail = $askLine
+    try {
+        $answer = (Get-Txt ($askLine | ConvertFrom-Json)) | ConvertFrom-Json
+        $askDetail = "decision=$($answer.decision) choice=$($answer.choice) text=$($answer.text)"
+        $askOk = $answer.decision -eq 'answered' -and $answer.choice -eq 'Beta' -and $answer.text -eq 'typed answer'
+    } catch { $askDetail = "exception: $($_.Exception.Message)" }
+    Add-Result 'ask_user (answered)' $askOk $askDetail
 
     Write-Host "--- file mutations -----------------------------------------" -ForegroundColor Yellow
     if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }

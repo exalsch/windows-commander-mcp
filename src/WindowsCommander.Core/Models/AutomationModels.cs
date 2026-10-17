@@ -48,3 +48,13 @@ public sealed record ControlIndicatorConfig(bool VisualEnabled, bool AudioEnable
 public sealed record ControlIndicatorStatus(bool IsVisible, string? Message, RectBounds? Bounds, ControlIndicatorConfig Config);
 
 public sealed record ConfirmationResult(string Title, string Message, string RiskLevel, string Decision, DateTimeOffset DecidedAt);
+
+// The UI Automation element that currently has keyboard focus, plus the
+// top-level window that hosts it, so a caller can check where keystrokes will
+// land before typing.
+public sealed record FocusedUiElementInfo(UiElementInfo Element, int ProcessId, string ProcessName, long? TopLevelWindowHandle, string? TopLevelWindowTitle);
+
+// Outcome of ask_user. Decision is "answered", "cancelled" or "timeout";
+// Choice is the clicked option (null when there were no options or no answer)
+// and Text the typed answer (null unless a text field was shown).
+public sealed record UserPromptResult(string Title, string Message, string Decision, string? Choice, string? Text, DateTimeOffset DecidedAt);

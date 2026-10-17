@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Windows.Automation;
 using WindowsCommander.Core.Models;
 using WindowsCommander.Core.Services;
+using WindowsCommander.Windows.Native;
 
 namespace WindowsCommander.Windows.Services;
 
@@ -110,6 +111,51 @@ public sealed class UiAutomationService : IUiAutomationService
         var actions = GetSupportedActions(element);
 
         return new UiElementDetails(info, actions, SafeName(parent), children);
+    }
+
+    public FocusedUiElementInfo GetFocusedUiElement()
+    {
+        var element = AutomationElement.FocusedElement
+            ?? throw new InvalidOperationException("No UI element currently has keyboard focus.");
+        var info = ToInfo(element);
+
+        // Many focused elements (e.g. inside WPF, UWP or browser content) have
+        // no HWND of their own, so walk up to the nearest ancestor that does
+        // and resolve its top-level window.
+        long? topLevelHandle = null;
+        for (var current = element; current is not null; current = TreeWalker.RawViewWalker.GetParent(current))
+        {
+            var native = current.Current.NativeWindowHandle;
+            if (native != 0)
+            {
+                const uint gaRoot = 2;
+                var root = NativeMethods.GetAncestor(native, gaRoot);
+                topLevelHandle = root == nint.Zero ? native : root;
+                break;
+            }
+        }
+
+        var processId = element.Current.ProcessId;
+        var window = topLevelHandle is null ? null : WindowService.DescribeWindow((nint)topLevelHandle.Value);
+
+        return new FocusedUiElementInfo(info, processId, GetProcessName(processId), topLevelHandle, window?.Title);
+    }
+
+    private static string GetProcessName(int processId)
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById(processId);
+            return process.ProcessName;
+        }
+        catch (ArgumentException)
+        {
+            return string.Empty;
+        }
+        catch (InvalidOperationException)
+        {
+            return string.Empty;
+        }
     }
 
     private AutomationElement GetRootElement(long windowHandle)
