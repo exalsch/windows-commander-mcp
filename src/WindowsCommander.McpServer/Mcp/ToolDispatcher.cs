@@ -311,7 +311,7 @@ public sealed class ToolDispatcher
                     Int("audio_frequency_hz", "Audio tone frequency in Hz (default 880)."),
                     Int("audio_duration_ms", "Audio tone duration in milliseconds (default 150).")),
                 Tool("get_control_indicator_status", "Returns current indicator state."),
-                Tool("request_user_confirmation", "Requests local user confirmation.",
+                Tool("request_user_confirmation", "Requests local user confirmation in a topmost dialog that takes keyboard focus: Enter or Space approves, Esc denies. Returns decision ('approved', 'denied' or 'timeout'). The dialog closes itself on timeout.",
                     Str("title", "Confirmation dialog title.", required: true),
                     Str("message", "Confirmation prompt shown to the user.", required: true),
                     Str("risk_level", "Risk level of the pending operation.", true, "low", "medium", "high"),

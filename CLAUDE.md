@@ -236,9 +236,15 @@ covered by `smoke-mcp.ps1`'s "agent-efficiency features" section:
   where the text lands.
 - `ask_user`: a WinForms dialog (`UserPromptForm`) with up to 6 option buttons
   and an optional text field. Returns `decision` (`answered` / `cancelled` /
-  `timeout`), `choice` and `text`. Unlike `request_user_confirmation` (a
-  `MessageBox` that stays open after its timeout), the form closes itself when
-  the timeout elapses. Not risk-gated. `mutate-mcp.ps1` covers the timeout
+  `timeout`), `choice` and `text`. The form closes itself when the timeout
+  elapses. Not risk-gated.
+- `request_user_confirmation` and the risk-gating dialog use the same form
+  with "Allow (Enter)" / "Deny (Esc)". The server is a background process, so
+  the form calls `WindowService.ForceForeground` on Shown; without it Windows
+  only flashes the taskbar and the keys go to the previous window. Enter or
+  Space approves, Esc or the close box denies. `mutate-mcp.ps1` checks the
+  dialog is the foreground window and answers it with a bare key tap for
+  each of Enter, Space and Esc. `mutate-mcp.ps1` covers the timeout
   path (and checks the dialog is gone) and the answered path, where a second
   server instance types into the field and clicks a button via UIA.
 

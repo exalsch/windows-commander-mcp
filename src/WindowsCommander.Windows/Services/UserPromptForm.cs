@@ -76,8 +76,10 @@ internal sealed class UserPromptForm : Forms.Form
         layout.Controls.Add(buttons);
         Controls.Add(layout);
 
-        // Enter picks the first option, Esc / the close box cancels.
-        AcceptButton = (Forms.IButtonControl)buttons.Controls[0];
+        // Enter (and Space, while it has focus) picks the first option, Esc /
+        // the close box cancels.
+        var firstButton = (Forms.Button)buttons.Controls[0];
+        AcceptButton = firstButton;
         KeyPreview = true;
         KeyDown += (_, e) =>
         {
@@ -97,11 +99,20 @@ internal sealed class UserPromptForm : Forms.Form
         Shown += (_, _) =>
         {
             timer.Start();
+
+            // The server is a background process, so a plain Activate() only
+            // flashes the taskbar and the keyboard keeps going to the previous
+            // window. Force real activation so Enter / Esc reach the dialog.
+            WindowService.ForceForeground(Handle);
             Activate();
             if (textBox is not null)
             {
                 textBox.Focus();
                 textBox.SelectAll();
+            }
+            else
+            {
+                firstButton.Focus();
             }
         };
 

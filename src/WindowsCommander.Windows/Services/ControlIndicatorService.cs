@@ -238,19 +238,36 @@ public sealed class ControlIndicatorService : IControlIndicatorService
 
     public ConfirmationResult RequestUserConfirmation(string title, string message, string riskLevel, int? timeoutMs)
     {
-        Forms.DialogResult result = Forms.DialogResult.None;
+        // Same self-closing form as ask_user: it takes real foreground focus,
+        // Enter / Space approve, Esc denies, and it closes itself on timeout
+        // (a MessageBox stayed open after the call had already returned).
+        var timeout = Math.Clamp(timeoutMs ?? 30000, 1000, 300000);
+        string decision = "timeout";
         var thread = new Thread(() =>
         {
-            result = Forms.MessageBox.Show(message, title, Forms.MessageBoxButtons.YesNo, Forms.MessageBoxIcon.Warning, Forms.MessageBoxDefaultButton.Button2);
+            using var form = new UserPromptForm(title, message, new[] { ApproveOption, DenyOption }, false, null, timeout);
+            form.ShowDialog();
+            decision = form.Decision switch
+            {
+                "answered" when form.Choice == ApproveOption => "approved",
+                "timeout" => "timeout",
+                _ => "denied"
+            };
         });
         thread.SetApartmentState(ApartmentState.STA);
+        thread.IsBackground = true;
         thread.Start();
 
-        var completed = thread.Join(Math.Clamp(timeoutMs ?? 30000, 1000, 300000));
-        var decision = completed && result == Forms.DialogResult.Yes ? "approved" : completed ? "denied" : "timeout";
+        if (!thread.Join(timeout + 5000))
+        {
+            decision = "timeout";
+        }
+
         return new ConfirmationResult(title, message, riskLevel, decision, DateTimeOffset.UtcNow);
     }
 
+    private const string ApproveOption = "Allow (Enter)";
+    private const string DenyOption = "Deny (Esc)";
     private const int MaxPromptOptions = 6;
 
     public UserPromptResult AskUser(string title, string message, IReadOnlyList<string>? options, bool allowTextInput, string? defaultText, int? timeoutMs)

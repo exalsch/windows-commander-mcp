@@ -36,7 +36,7 @@ public sealed class WindowService : IWindowService
         return new WindowActionResult(windowHandle, "focus", completed, GetWindowBounds(handle), null);
     }
 
-    private static bool ForceForeground(IntPtr handle)
+    internal static bool ForceForeground(IntPtr handle)
     {
         const int swRestore = 9;
         const int swShow = 5;

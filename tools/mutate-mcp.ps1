@@ -235,8 +235,7 @@ try {
 
     Write-Host "--- ask_user -----------------------------------------------" -ForegroundColor Yellow
     # Timeout path: nobody answers, so the result is 'timeout' AND the dialog
-    # must be gone afterwards (request_user_confirmation leaves its MessageBox
-    # open on timeout; ask_user must not).
+    # must be gone afterwards (the form closes itself on timeout).
     $askTitle = "wc-mutate-ask-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
     Test-Tool $proc 'ask_user' @{ title = $askTitle; message = 'mutate-mcp: no answer expected'; options = @('Alpha', 'Beta'); timeout_ms = 1500 } `
         -Label 'timeout' { param($p) $p.decision -eq 'timeout' -and $null -eq $p.choice } | Out-Null
@@ -282,6 +281,54 @@ try {
         $askOk = $answer.decision -eq 'answered' -and $answer.choice -eq 'Beta' -and $answer.text -eq 'typed answer'
     } catch { $askDetail = "exception: $($_.Exception.Message)" }
     Add-Result 'ask_user (answered)' $askOk $askDetail
+
+    Write-Host "--- request_user_confirmation ------------------------------" -ForegroundColor Yellow
+    # Timeout path: the dialog must close itself, like ask_user.
+    $confTitle = "wc-mutate-conf-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+    Test-Tool $proc 'request_user_confirmation' @{ title = $confTitle; message = 'mutate-mcp: no answer expected'; risk_level = 'high'; timeout_ms = 1500 } `
+        -Label 'timeout' { param($p) $p.decision -eq 'timeout' } | Out-Null
+    Start-Sleep -Milliseconds 300
+    Test-Tool $proc 'find_window' @{ title_contains = $confTitle; visible_only = $true } -Label 'dialog closed' `
+        { param($p, $t) $t.Trim() -eq '[]' } | Out-Null
+
+    # Keyboard paths: the dialog must take real foreground focus, so a bare
+    # key tap from a second server instance (no clicking, no UIA) answers it.
+    foreach ($case in @(@{ Key = 'enter'; Expect = 'approved' }, @{ Key = 'space'; Expect = 'approved' }, @{ Key = 'escape'; Expect = 'denied' })) {
+        $keyTitle = "wc-mutate-conf-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+        $script:nextId++
+        $confReq = @{ jsonrpc = '2.0'; id = $script:nextId; method = 'tools/call'; params = @{
+            name = 'request_user_confirmation'; arguments = @{ title = $keyTitle; message = "mutate-mcp: answered by $($case.Key)"; risk_level = 'high'; timeout_ms = 20000 } } }
+        $proc.StandardInput.WriteLine(($confReq | ConvertTo-Json -Depth 20 -Compress))
+        $proc.StandardInput.Flush()
+        $fgOk = $false
+        $helper = Start-Server -Exe $ServerExe
+        try {
+            Invoke-Rpc -Proc $helper -Method 'initialize' -Params @{
+                protocolVersion = '2024-11-05'; capabilities = @{}; clientInfo = @{ name = 'mutate-mcp-helper'; version = '1.0' }
+            } | Out-Null
+            Send-Notification -Proc $helper -Method 'notifications/initialized'
+            $dw = Invoke-Rpc -Proc $helper -Method 'tools/call' -Params @{ name = 'wait_for_window'; arguments = @{ title_contains = $keyTitle; timeout_ms = 10000 } }
+            $dialogHwnd = ((Get-Txt $dw) | ConvertFrom-Json).hwnd
+            Start-Sleep -Milliseconds 300
+            $fg = Invoke-Rpc -Proc $helper -Method 'tools/call' -Params @{ name = 'get_foreground_window'; arguments = @{} }
+            $fgOk = ((Get-Txt $fg) | ConvertFrom-Json).hwnd -eq $dialogHwnd
+            Invoke-Rpc -Proc $helper -Method 'tools/call' -Params @{ name = 'keyboard_action'; arguments = @{ action = 'tap'; key = $case.Key } } | Out-Null
+        }
+        finally {
+            if (-not $helper.HasExited) {
+                $helper.StandardInput.Close()
+                if (-not $helper.WaitForExit(3000)) { $helper.Kill() }
+            }
+        }
+        $confLine = $proc.StandardOutput.ReadLine()
+        $confOk = $false; $confDetail = $confLine
+        try {
+            $conf = (Get-Txt ($confLine | ConvertFrom-Json)) | ConvertFrom-Json
+            $confDetail = "foreground=$fgOk decision=$($conf.decision)"
+            $confOk = $fgOk -and $conf.decision -eq $case.Expect
+        } catch { $confDetail = "exception: $($_.Exception.Message)" }
+        Add-Result "request_user_confirmation ($($case.Key))" $confOk $confDetail
+    }
 
     Write-Host "--- file mutations -----------------------------------------" -ForegroundColor Yellow
     if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
