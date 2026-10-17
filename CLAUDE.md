@@ -208,21 +208,33 @@ covered by `smoke-mcp.ps1`'s "agent-efficiency features" section:
   to an unreadable blur. Use `primary_screen` or `screen-N` (1-based, matches
   the `monitorId` scheme) to capture one monitor; `active_window` resolves the
   real foreground window.
-- `capture_screen` / `ocr_screen` `bring_to_front` (default `true`): when the
-  target names a *specific window* (a numeric `target` or an explicit `hwnd`),
-  the dispatcher raises that window to the top of the Z order (via
-  `WindowService.RaiseWindowForCapture`, then a short settle delay) before the
-  pixels are read — otherwise `CopyFromScreen` photographs whatever sits on top
-  of an occluded/minimized target. This is a **non-activating** raise
-  (`SetWindowPos` `HWND_TOP` + `SWP_NOACTIVATE`; a minimized target is restored
-  with `SW_SHOWNOACTIVATE`): it re-stacks the window for the grab but does **not**
-  steal keyboard focus from whatever the user is working in — deliberately the
-  opposite of `WindowService.ForceForeground`. Using `FocusWindow` here (as an
-  earlier version did) yanked focus to the captured window, which the user saw
-  as "the terminal grabs focus" when a capture targeted it. No effect for screen
-  targets or `active_window` (already foreground); `TryResolveCaptureWindowHandle`
-  returns null for those. Pass `bring_to_front: false` to read a background
-  window without disturbing z-order. `mutate-mcp.ps1` covers both paths.
+- `capture_screen` / `ocr_screen` **window-target capture uses `PrintWindow`**:
+  when the target names a *specific window* (a numeric `target` or an explicit
+  `hwnd`), `VisionService.TryCaptureWindowBitmap` asks the window to paint its
+  own pixels into a bitmap (`PrintWindow` + `PW_RENDERFULLCONTENT`). This reads
+  the window correctly even when it is **occluded, off-screen, or behind the
+  foreground window**, and — crucially — **without raising it or moving focus**.
+  It falls back to a `CopyFromScreen` screen-scrape of the window's rect when
+  `PrintWindow` returns a blank frame (some GPU/DWM-composited windows do; see
+  `IsBlank`). *Why this exists:* a screen-scrape can only show an un-occluded
+  window if that window is physically on top, and a background process can only
+  put it on top by stealing focus. The earlier `FocusWindow` raise stole focus
+  ("the terminal grabs focus"); its `SetWindowPos`/`SWP_NOACTIVATE` replacement
+  preserved focus but **could not lift a window above the foreground window**, so
+  it still photographed the occluder. `PrintWindow` sidesteps both problems.
+- `capture_screen` / `ocr_screen` `bring_to_front` (default `true`): with
+  `PrintWindow` doing the real work, this now only matters for a **minimized**
+  target — `PrintWindow` cannot render a window with no laid-out surface, so the
+  dispatcher (`MaybeBringCaptureTargetToFrontAsync` →
+  `WindowService.RaiseWindowForCapture`) restores it first with a non-activating
+  raise (`SW_SHOWNOACTIVATE`, then `SetWindowPos HWND_TOP | SWP_NOACTIVATE`),
+  which does **not** steal focus. No effect for screen targets or `active_window`
+  (`TryResolveCaptureWindowHandle` returns null for those). Pass
+  `bring_to_front: false` to leave a minimized/background window untouched.
+  `mutate-mcp.ps1` covers both paths (note it asserts *an image came back* and
+  the window's minimized state, but does **not** pixel-verify un-occlusion —
+  that gap is why the earlier raise regression went unnoticed; verify occlusion
+  manually).
 
 ## Focus and user prompts
 

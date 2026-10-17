@@ -167,7 +167,7 @@ public sealed class ToolDispatcher
                     Str("target", "What to capture: 'full_screen', 'active_window', or a numeric window handle.", required: true),
                     Int("hwnd", "Explicit window handle to capture (overrides target)."),
                     Int("max_dimension", "Cap the longest image side in pixels; the capture is downscaled to fit (default 1400)."),
-                    Bool("bring_to_front", "When the target is a specific window (hwnd or a numeric target), raise it above other windows before capturing so an occluded window is not photographed behind whatever covers it (default true). This is a z-order raise only; it does NOT steal keyboard focus from whatever the user is working in. No effect for screen or active_window targets. Pass false to capture a background window without changing z-order.")),
+                    Bool("bring_to_front", "When the target is a specific window (hwnd or a numeric target), its own pixels are captured directly (via PrintWindow), so an occluded, off-screen, or background window is captured correctly without stealing focus or bringing it in front of what the user is working in. bring_to_front (default true) only restores the target first if it is minimized so it can be rendered. No effect for screen or active_window targets. Pass false to leave a minimized/background window untouched.")),
                 Tool("capture_screen_region", "Captures a rectangular screen region as a PNG image.",
                     Int("x", "Region left position in virtual-screen pixels.", required: true),
                     Int("y", "Region top position in virtual-screen pixels.", required: true),
@@ -206,7 +206,7 @@ public sealed class ToolDispatcher
                     Str("target", "What to read: 'full_screen', 'active_window', or a numeric window handle.", required: true),
                     Int("hwnd", "Explicit window handle to read."),
                     RectParam("region", "Optional sub-region to limit the read."),
-                    Bool("bring_to_front", "When the target is a specific window (hwnd or a numeric target), raise it above other windows before reading so an occluded window is not read behind whatever covers it (default true). This is a z-order raise only; it does NOT steal keyboard focus from whatever the user is working in. No effect for screen or active_window targets. Pass false to read a background window without changing z-order.")),
+                    Bool("bring_to_front", "When the target is a specific window (hwnd or a numeric target), its own pixels are read directly (via PrintWindow), so an occluded, off-screen, or background window is read correctly without stealing focus or bringing it in front of what the user is working in. bring_to_front (default true) only restores the target first if it is minimized so it can be rendered. No effect for screen or active_window targets. Pass false to leave a minimized/background window untouched.")),
                 Tool("detect_visual_elements", "Detects local visual candidates from windows/UI metadata.",
                     Str("target", "What to scan: 'full_screen', 'active_window', or a numeric window handle.", required: true),
                     Int("hwnd", "Explicit window handle to scan."),
@@ -454,13 +454,14 @@ public sealed class ToolDispatcher
         }
     }
 
-    // capture_screen / ocr_screen read whatever pixels currently sit at the
-    // target window's rectangle, so an occluded window is photographed behind
-    // whatever covers it. When the target names a specific window, raise it to
-    // the top of the Z order first (a non-activating raise, so the user's
-    // keyboard focus is NOT stolen the way focus_window would) and let the
-    // compositor repaint before the pixels are read. Callers can pass
-    // bring_to_front:false to capture a background window undisturbed.
+    // capture_screen / ocr_screen render a window target's own pixels with
+    // PrintWindow, which reads an occluded/off-screen window correctly without
+    // raising it or moving focus. The one thing PrintWindow cannot do is render
+    // a *minimized* window (it has no laid-out surface), so when the target
+    // names a specific window we first restore it if minimized — via a
+    // non-activating raise that does NOT steal focus — and let the compositor
+    // repaint before the pixels are read. Callers can pass bring_to_front:false
+    // to leave a minimized/background window untouched.
     private async Task MaybeBringCaptureTargetToFrontAsync(string name, JsonElement? arguments, CancellationToken cancellationToken)
     {
         if (name is not ("capture_screen" or "ocr_screen"))

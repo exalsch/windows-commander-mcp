@@ -68,6 +68,9 @@ internal static partial class NativeMethods
     internal static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
     [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool PrintWindow(nint hWnd, nint hdcBlt, uint nFlags);
+
+    [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool MoveWindow(nint hWnd, int x, int y, int width, int height, bool repaint);
 
     [DllImport("user32.dll")]

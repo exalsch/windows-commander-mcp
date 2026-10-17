@@ -16,12 +16,38 @@ public sealed class VisionService : IVisionService
     // to be usable; an explicit max_dimension argument can override this.
     private const int DefaultMaxDimension = 1400;
 
+    // PrintWindow flag: render the window's full content, including
+    // DirectComposition / hardware-accelerated surfaces, so modern
+    // (WinUI/Chromium) windows are not captured as an empty frame.
+    private const uint PwRenderFullContent = 0x00000002;
+
+    // Grid resolution for the PrintWindow blank-frame check (roughly this many
+    // samples per axis).
+    private const int BlankSampleSteps = 12;
+
     // The Windows on-device OCR engine, created lazily from the user's
     // installed languages and reused across calls.
     private WinRtOcr.OcrEngine? ocrEngine;
 
     public ScreenCaptureResult CaptureScreen(string target, long? windowHandle, int? maxDimension)
     {
+        // For a specific-window target, render the window's own pixels with
+        // PrintWindow first. Unlike a screen scrape it reads the window even
+        // when it sits behind the foreground window or off-screen, WITHOUT
+        // raising it or stealing focus, so an occluded window is captured
+        // correctly rather than photographing whatever covers it. Fall back to
+        // a screen scrape when PrintWindow cannot (some GPU-composited windows
+        // return a blank frame).
+        var handle = TryResolveCaptureWindowHandle(target, windowHandle);
+        if (handle is not null)
+        {
+            using var windowBitmap = TryCaptureWindowBitmap(handle.Value);
+            if (windowBitmap is not null)
+            {
+                return EncodeBitmap(windowBitmap, ResolveCaptureRegion(target, windowHandle), null, maxDimension);
+            }
+        }
+
         var region = ResolveCaptureRegion(target, windowHandle);
         return CaptureRegion(region, null, maxDimension);
     }
@@ -46,12 +72,23 @@ public sealed class VisionService : IVisionService
 
         var engine = GetOcrEngine();
 
-        // Capture the region's pixels.
-        using var bitmap = new System.Drawing.Bitmap(resolvedRegion.Width, resolvedRegion.Height);
-        using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+        // Capture the region's pixels. For a whole-window target (no explicit
+        // sub-region), PrintWindow reads the window's own pixels even when it is
+        // occluded or behind the foreground, without raising it; fall back to a
+        // screen scrape otherwise. The PrintWindow bitmap is the window's rect,
+        // which equals resolvedRegion here, so the OCR->screen coordinate
+        // mapping below is unaffected.
+        System.Drawing.Bitmap? windowBitmap = null;
+        if (region is null)
         {
-            graphics.CopyFromScreen(resolvedRegion.X, resolvedRegion.Y, 0, 0, new System.Drawing.Size(resolvedRegion.Width, resolvedRegion.Height));
+            var handle = TryResolveCaptureWindowHandle(target, windowHandle);
+            if (handle is not null)
+            {
+                windowBitmap = TryCaptureWindowBitmap(handle.Value);
+            }
         }
+
+        using var bitmap = windowBitmap ?? CaptureRegionBitmap(resolvedRegion);
 
         // OcrEngine rejects images longer than MaxImageDimension on a side.
         // Scale down to fit and divide the result rects back up by the factor.
@@ -222,21 +259,112 @@ public sealed class VisionService : IVisionService
 
     private static ScreenCaptureResult CaptureRegion(RectBounds region, string? monitorId, int? maxDimension)
     {
-        using var bitmap = new System.Drawing.Bitmap(region.Width, region.Height);
-        using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+        using var bitmap = CaptureRegionBitmap(region);
+        return EncodeBitmap(bitmap, region, monitorId, maxDimension);
+    }
+
+    // Screen-scrapes a virtual-screen rectangle into a GDI bitmap. Reads
+    // whatever pixels currently sit at that rectangle, so a covered window is
+    // photographed behind whatever covers it — window-handle captures prefer
+    // TryCaptureWindowBitmap, which does not have that limitation.
+    private static System.Drawing.Bitmap CaptureRegionBitmap(RectBounds region)
+    {
+        var bitmap = new System.Drawing.Bitmap(region.Width, region.Height);
+        using var graphics = System.Drawing.Graphics.FromImage(bitmap);
+        graphics.CopyFromScreen(region.X, region.Y, 0, 0, new System.Drawing.Size(region.Width, region.Height));
+        return bitmap;
+    }
+
+    // Asks a window to paint its own pixels into a bitmap via PrintWindow, which
+    // works regardless of z-order, occlusion, or on-screen position and never
+    // raises the window or moves focus. Returns null when the handle is invalid,
+    // the window has no drawable area (e.g. still minimized), PrintWindow fails,
+    // or the frame comes back blank (some GPU-composited windows do) — the
+    // caller then falls back to a screen scrape.
+    private static System.Drawing.Bitmap? TryCaptureWindowBitmap(long windowHandle)
+    {
+        var handle = new IntPtr(windowHandle);
+        if (!NativeMethods.GetWindowRect(handle, out var rect))
         {
-            graphics.CopyFromScreen(region.X, region.Y, 0, 0, new System.Drawing.Size(region.Width, region.Height));
+            return null;
         }
 
+        var width = rect.Right - rect.Left;
+        var height = rect.Bottom - rect.Top;
+        if (width <= 0 || height <= 0)
+        {
+            return null;
+        }
+
+        var bitmap = new System.Drawing.Bitmap(width, height);
+        try
+        {
+            bool printed;
+            using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+            {
+                var hdc = graphics.GetHdc();
+                try
+                {
+                    printed = NativeMethods.PrintWindow(handle, hdc, PwRenderFullContent);
+                }
+                finally
+                {
+                    graphics.ReleaseHdc(hdc);
+                }
+            }
+
+            if (!printed || IsBlank(bitmap))
+            {
+                bitmap.Dispose();
+                return null;
+            }
+
+            return bitmap;
+        }
+        catch
+        {
+            bitmap.Dispose();
+            return null;
+        }
+    }
+
+    // A PrintWindow result that is a single flat colour across a sparse grid is
+    // treated as blank (the empty/black frame some GPU-composited windows
+    // return), so the caller can fall back to a screen scrape. A genuinely
+    // uniform window reads the same either way, so a false positive is harmless.
+    private static bool IsBlank(System.Drawing.Bitmap bitmap)
+    {
+        var stepX = Math.Max(1, bitmap.Width / BlankSampleSteps);
+        var stepY = Math.Max(1, bitmap.Height / BlankSampleSteps);
+        var first = bitmap.GetPixel(0, 0);
+
+        for (var y = 0; y < bitmap.Height; y += stepY)
+        {
+            for (var x = 0; x < bitmap.Width; x += stepX)
+            {
+                if (bitmap.GetPixel(x, y) != first)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    // Downscales past the cap and PNG-encodes a captured bitmap into the MCP
+    // result shape. Shared by the screen-scrape and PrintWindow paths.
+    private static ScreenCaptureResult EncodeBitmap(System.Drawing.Bitmap bitmap, RectBounds region, string? monitorId, int? maxDimension)
+    {
         var cap = maxDimension is > 0 ? maxDimension.Value : DefaultMaxDimension;
-        var longestSide = Math.Max(region.Width, region.Height);
+        var longestSide = Math.Max(bitmap.Width, bitmap.Height);
 
         using var stream = new MemoryStream();
         if (longestSide > cap)
         {
             var scale = (double)cap / longestSide;
-            var scaledWidth = Math.Max(1, (int)Math.Round(region.Width * scale));
-            var scaledHeight = Math.Max(1, (int)Math.Round(region.Height * scale));
+            var scaledWidth = Math.Max(1, (int)Math.Round(bitmap.Width * scale));
+            var scaledHeight = Math.Max(1, (int)Math.Round(bitmap.Height * scale));
             using var scaled = new System.Drawing.Bitmap(bitmap, scaledWidth, scaledHeight);
             scaled.Save(stream, ImageFormat.Png);
         }
